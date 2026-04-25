@@ -81,6 +81,7 @@ object TerminalSessionPool {
         )
         _sessions.update { it + state }
         _activeSessionId.value = sessionId
+        persistOpenHosts()
 
         scope.launch {
             connectInternal(sessionId)
@@ -99,6 +100,17 @@ object TerminalSessionPool {
         if (_activeSessionId.value == sessionId) {
             _activeSessionId.value = _sessions.value.lastOrNull()?.sessionId
         }
+        persistOpenHosts()
+    }
+
+    fun closeAll() {
+        val ids = _sessions.value.map { it.sessionId }
+        ids.forEach { close(it) }
+    }
+
+    fun closeOthers(keepSessionId: Long) {
+        val ids = _sessions.value.map { it.sessionId }.filterNot { it == keepSessionId }
+        ids.forEach { close(it) }
     }
 
     fun disconnect(sessionId: Long) {
@@ -129,6 +141,53 @@ object TerminalSessionPool {
         val next = !s.autoReconnect
         prefs.edit().putBoolean("autoReconnect_${s.hostId}", next).apply()
         _sessions.update { list -> list.map { if (it.sessionId == sessionId) it.copy(autoReconnect = next) else it } }
+    }
+
+    fun broadcastWrite(text: String) {
+        val list = _sessions.value
+        list.forEach { s ->
+            try {
+                s.term?.write(text)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun exportLog(sessionId: Long): String? {
+        val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return null
+        val term = s.term ?: return null
+        return try {
+            val dir = java.io.File(app.getExternalFilesDir(null), "logs").apply { mkdirs() }
+            val file = java.io.File(dir, "ssh-${s.hostId}-${System.currentTimeMillis()}.txt")
+            file.writeText(term.transcriptText)
+            _sessions.update { list ->
+                list.map {
+                    if (it.sessionId == sessionId) it.copy(status = "日志已保存：${file.name}")
+                    else it
+                }
+            }
+            file.absolutePath
+        } catch (t: Throwable) {
+            _sessions.update { list ->
+                list.map {
+                    if (it.sessionId == sessionId) it.copy(status = "保存日志失败：${t.message}")
+                    else it
+                }
+            }
+            null
+        }
+    }
+
+    fun loadOpenHostIds(): List<Long> {
+        return (prefs.getString("openHostIds", "") ?: "")
+            .split(',')
+            .mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() }?.toLongOrNull() }
+            .filter { it > 0 }
+    }
+
+    private fun persistOpenHosts() {
+        val hostIds = _sessions.value.map { it.hostId }.distinct()
+        prefs.edit().putString("openHostIds", hostIds.joinToString(",")).apply()
     }
 
     private suspend fun connectInternal(sessionId: Long) {

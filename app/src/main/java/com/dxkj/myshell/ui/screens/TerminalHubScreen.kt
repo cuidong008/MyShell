@@ -30,6 +30,8 @@ import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Add as AddIcon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
@@ -88,11 +90,18 @@ fun TerminalHubScreen(
     var cursorHighContrast by remember { mutableStateOf(true) }
     var keyBarVisible by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     // 初始 hostId：自动开会话
     LaunchedEffect(initialHostId) {
         val hid = initialHostId?.takeIf { it > 0 } ?: return@LaunchedEffect
         TerminalSessionPool.ensureSession(hid)
+    }
+    LaunchedEffect(Unit) {
+        if (initialHostId == null && sessions.isEmpty()) {
+            val ids = TerminalSessionPool.loadOpenHostIds()
+            ids.forEach { TerminalSessionPool.ensureSession(it) }
+        }
     }
 
     // 切换会话时加载对应 host 的偏好
@@ -253,6 +262,13 @@ fun TerminalHubScreen(
                         Text(text = if (active.autoReconnect) "自重连" else "不重连", color = Color.White, style = MaterialTheme.typography.labelSmall)
                     }
 
+                    FilledTonalIconButton(
+                        onClick = { showMoreMenu = true },
+                        enabled = true,
+                    ) {
+                        Icon(imageVector = Icons.Outlined.MoreVert, contentDescription = "more")
+                    }
+
                     FilledTonalIconButton(onClick = { keyBarVisible = !keyBarVisible }, enabled = active.term != null) {
                         Icon(imageVector = if (keyBarVisible) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.Keyboard, contentDescription = "keybar")
                     }
@@ -278,6 +294,19 @@ fun TerminalHubScreen(
                         },
                         enabled = active.term != null,
                     ) { Icon(imageVector = Icons.Outlined.ContentPaste, contentDescription = "paste") }
+
+                    FilledTonalIconButton(
+                        onClick = {
+                            val t = clipboard.getText()?.text.orEmpty()
+                            if (t.isNotBlank()) TerminalSessionPool.broadcastWrite(t)
+                        },
+                        enabled = sessions.any { it.term != null },
+                    ) { Text(text = "广播粘贴", color = Color.White, style = MaterialTheme.typography.labelSmall) }
+
+                    FilledTonalIconButton(
+                        onClick = { TerminalSessionPool.exportLog(active.sessionId) },
+                        enabled = active.term != null,
+                    ) { Icon(imageVector = Icons.Outlined.Save, contentDescription = "save log") }
                 }
             }
         }
@@ -316,6 +345,32 @@ fun TerminalHubScreen(
                 onPick = { hid ->
                     showHostPicker = false
                     TerminalSessionPool.ensureSession(hid)
+                },
+            )
+        }
+
+        if (showMoreMenu && active != null) {
+            AlertDialog(
+                onDismissRequest = { showMoreMenu = false },
+                confirmButton = {
+                    TextButton(onClick = { showMoreMenu = false }) { Text("关闭") }
+                },
+                title = { Text("会话管理") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            showMoreMenu = false
+                            TerminalSessionPool.closeOthers(active.sessionId)
+                        }) { Text("关闭其它会话") }
+                        TextButton(onClick = {
+                            showMoreMenu = false
+                            TerminalSessionPool.closeAll()
+                        }) { Text("关闭全部会话") }
+                        TextButton(onClick = {
+                            showMoreMenu = false
+                            TerminalSessionPool.broadcastWrite("\u0003")
+                        }) { Text("广播 Ctrl+C") }
+                    }
                 },
             )
         }

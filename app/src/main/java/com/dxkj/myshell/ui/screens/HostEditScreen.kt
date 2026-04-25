@@ -1,0 +1,324 @@
+package com.dxkj.myshell.ui.screens
+
+import android.app.Application
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dxkj.myshell.data.db.DbProvider
+import com.dxkj.myshell.data.repo.HostRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import androidx.lifecycle.viewModelScope
+import com.dxkj.myshell.ssh.SshTestClient
+import com.dxkj.myshell.ssh.SshTestInput
+import com.dxkj.myshell.ssh.SshTestResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@Composable
+fun HostEditScreen(
+    contentPadding: PaddingValues,
+    hostId: Long?,
+    onDone: () -> Unit,
+) {
+    val context = LocalContext.current
+    val vm: HostEditViewModel = viewModel(
+        factory = HostEditViewModel.factory(context.applicationContext as Application),
+    )
+
+    LaunchedEffect(hostId) {
+        vm.load(hostId)
+    }
+
+    val ui by vm.ui.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = if (hostId == null) "新增主机" else "编辑主机",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+
+        OutlinedTextField(
+            value = ui.name,
+            onValueChange = { vm.update { copy(name = it) } },
+            label = { Text("名称") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = ui.host,
+            onValueChange = { vm.update { copy(host = it) } },
+            label = { Text("主机地址") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = ui.port,
+            onValueChange = { vm.update { copy(port = it) } },
+            label = { Text("端口") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = ui.username,
+            onValueChange = { vm.update { copy(username = it) } },
+            label = { Text("用户名") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+
+        Text(text = "认证方式", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = ui.authType == "password",
+                onClick = { vm.update { copy(authType = "password") } },
+            )
+            Text("密码")
+            RadioButton(
+                selected = ui.authType == "key",
+                onClick = { vm.update { copy(authType = "key") } },
+                modifier = Modifier.padding(start = 16.dp),
+            )
+            Text("密钥（下一步实现）")
+        }
+
+        if (ui.authType == "password") {
+            OutlinedTextField(
+                value = ui.password,
+                onValueChange = { vm.update { copy(password = it) } },
+                label = { Text("密码") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+            )
+        } else {
+            Text(
+                text = "密钥认证：后续会在「密钥」页创建/导入私钥后，在这里选择。",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (ui.testing) {
+                CircularProgressIndicator()
+            }
+            Button(
+                onClick = { vm.testConnection(hostId) },
+                enabled = !ui.saving && !ui.testing,
+            ) {
+                Text(if (ui.testing) "测试中…" else "测试连接")
+            }
+        }
+
+        if (ui.error != null) {
+            Text(text = ui.error ?: "", color = MaterialTheme.colorScheme.error)
+        }
+        if (ui.testResult != null) {
+            Text(
+                text = ui.testResult ?: "",
+                color = if (ui.testResultOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+        ) {
+            Button(
+                onClick = { onDone() },
+                enabled = !ui.saving,
+            ) {
+                Text("取消")
+            }
+            Button(
+                onClick = { vm.save(hostId, onDone) },
+                enabled = !ui.saving,
+            ) {
+                Text(if (ui.saving) "保存中…" else "保存")
+            }
+        }
+    }
+}
+
+data class HostEditUi(
+    val name: String = "",
+    val host: String = "",
+    val port: String = "22",
+    val username: String = "",
+    val authType: String = "password",
+    val password: String = "",
+    val error: String? = null,
+    val testing: Boolean = false,
+    val testResult: String? = null,
+    val testResultOk: Boolean = false,
+    val saving: Boolean = false,
+)
+
+class HostEditViewModel(
+    app: Application,
+) : AndroidViewModel(app) {
+    private val repo = HostRepository(DbProvider.get(app).hostDao())
+    private val _ui = MutableStateFlow(HostEditUi())
+    val ui: StateFlow<HostEditUi> = _ui.asStateFlow()
+
+    fun update(block: HostEditUi.() -> HostEditUi) {
+        _ui.update { it.block().copy(error = null, testResult = null) }
+    }
+
+    fun load(hostId: Long?) {
+        if (hostId == null) {
+            _ui.value = HostEditUi()
+            return
+        }
+        viewModelScope.launch {
+            val entity = repo.getById(hostId)
+            if (entity == null) {
+                _ui.update { it.copy(error = "主机不存在") }
+                return@launch
+            }
+            _ui.value = HostEditUi(
+                name = entity.name,
+                host = entity.host,
+                port = entity.port.toString(),
+                username = entity.username,
+                authType = entity.authType,
+                password = entity.password.orEmpty(),
+            )
+        }
+    }
+
+    fun save(hostId: Long?, onDone: () -> Unit) {
+        viewModelScope.launch {
+            _ui.update { it.copy(saving = true, error = null) }
+            try {
+                val now = System.currentTimeMillis()
+                repo.upsert(
+                    id = hostId,
+                    name = ui.value.name,
+                    host = ui.value.host,
+                    port = ui.value.port.trim().toInt(),
+                    username = ui.value.username,
+                    authType = ui.value.authType,
+                    password = ui.value.password,
+                    privateKeyId = null,
+                    nowEpochMs = now,
+                )
+                onDone()
+            } catch (t: Throwable) {
+                _ui.update { it.copy(error = t.message ?: "保存失败", saving = false) }
+            } finally {
+                _ui.update { it.copy(saving = false) }
+            }
+        }
+    }
+
+    fun testConnection(hostId: Long?) {
+        viewModelScope.launch {
+            _ui.update { it.copy(testing = true, error = null, testResult = null) }
+            val snapshot = ui.value
+            val result = withContext(Dispatchers.IO) {
+                SshTestClient.testConnection(
+                    SshTestInput(
+                        host = snapshot.host,
+                        port = snapshot.port.trim().toIntOrNull() ?: -1,
+                        username = snapshot.username,
+                        authType = snapshot.authType,
+                        password = snapshot.password,
+                    ),
+                )
+            }
+            when (result) {
+                is SshTestResult.Success -> {
+                    // Keep HostEdit and Terminal/SFTP in sync: if editing an existing host, persist fields.
+                    var savedOk = false
+                    var savedErr: String? = null
+                    if (hostId != null) {
+                        try {
+                            repo.upsert(
+                                id = hostId,
+                                name = snapshot.name,
+                                host = snapshot.host,
+                                port = snapshot.port.trim().toIntOrNull() ?: -1,
+                                username = snapshot.username,
+                                authType = snapshot.authType,
+                                password = snapshot.password,
+                                privateKeyId = null,
+                                nowEpochMs = System.currentTimeMillis(),
+                            )
+                            savedOk = true
+                        } catch (t: Throwable) {
+                            savedOk = false
+                            savedErr = t.message ?: "保存失败"
+                        }
+                    }
+                    _ui.update {
+                        it.copy(
+                            testResult = when {
+                                hostId == null -> "连接成功（未保存）"
+                                savedOk -> "连接成功（已同步保存）"
+                                else -> "连接成功（但同步保存失败：${savedErr ?: "未知原因"}）"
+                            },
+                            testResultOk = true,
+                            testing = false,
+                        )
+                    }
+                }
+                is SshTestResult.Failure -> _ui.update {
+                    it.copy(
+                        testResult = "连接失败：${result.message}",
+                        testResultOk = false,
+                        testing = false,
+                    )
+                }
+            }
+        }
+    }
+
+    companion object {
+        fun factory(app: Application): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return HostEditViewModel(app) as T
+                }
+            }
+    }
+}
+

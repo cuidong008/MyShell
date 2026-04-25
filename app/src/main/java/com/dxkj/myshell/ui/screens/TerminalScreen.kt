@@ -55,6 +55,12 @@ fun TerminalScreen(
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
     val lastHostId = remember { prefs.getLong("lastHostId", -1L).takeIf { it > 0 } }
+    val recentIds = remember {
+        (prefs.getString("recentHostIds", "") ?: "")
+            .split(',')
+            .mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() }?.toLongOrNull() }
+            .filter { it > 0 }
+    }
     LaunchedEffect(hosts.size) {
         if (selectedHostId == null && lastHostId != null && hosts.any { it.id == lastHostId }) {
             selectedHostId = lastHostId
@@ -115,6 +121,34 @@ fun TerminalScreen(
                     onClick = { onOpenFullTerminal(lastHostId) },
                     enabled = hosts.any { it.id == lastHostId },
                 ) { Text("继续上次会话") }
+            }
+        }
+
+        if (recentIds.isNotEmpty()) {
+            Text("最近会话：", style = MaterialTheme.typography.titleMedium)
+            val recentHosts = remember(hosts, recentIds) {
+                val map = hosts.associateBy { it.id }
+                recentIds.mapNotNull { map[it] }
+            }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(recentHosts, key = { it.id }) { h ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(onClick = { onOpenFullTerminal(h.id) }) { Text("打开") }
+                        Column {
+                            Text(h.name, style = MaterialTheme.typography.titleMedium)
+                            Text("${h.username}@${h.host}:${h.port}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
             }
         }
 

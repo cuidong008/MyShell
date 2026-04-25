@@ -241,6 +241,21 @@ fun TerminalFullScreen(
             }
         }
 
+        // 会话状态浮层（断线/重连倒计时等），不打断终端交互
+        if (!ui.status.isNullOrBlank() && (ui.connecting || !ui.connected)) {
+            Text(
+                text = ui.status ?: "",
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .systemBarsPadding()
+                    .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
+                    .background(Color(0xAA111111), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+
         // 悬浮工具条（接近 ShellBean：不占用顶部/底部栏，随时可操作）
         if (toolbarVisible) {
             Row(
@@ -306,6 +321,20 @@ fun TerminalFullScreen(
                     enabled = ui.session != null,
                 ) {
                     Icon(imageVector = Icons.Outlined.Contrast, contentDescription = "cursor")
+                }
+
+                FilledTonalIconButton(
+                    onClick = {
+                        pokeInteraction()
+                        vm.toggleAutoReconnect()
+                    },
+                    enabled = true,
+                ) {
+                    Text(
+                        text = if (ui.autoReconnect) "自重连" else "不重连",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
 
                 FilledTonalIconButton(
@@ -461,6 +490,20 @@ private data class SchemeBase(
     val cursorBg: Int,
 )
 
+private fun updateRecentHosts(prefs: android.content.SharedPreferences, hostId: Long) {
+    val key = "recentHostIds"
+    val max = 8
+    val current = (prefs.getString(key, "") ?: "")
+        .split(',')
+        .mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() }?.toLongOrNull() }
+        .filter { it > 0 }
+        .toMutableList()
+    current.remove(hostId)
+    current.add(0, hostId)
+    val next = current.take(max).joinToString(",")
+    prefs.edit().putString(key, next).apply()
+}
+
 data class TerminalFullUi(
     val connecting: Boolean = true,
     val connected: Boolean = false,
@@ -522,6 +565,12 @@ class TerminalFullViewModel(
             term.setTermIn(input)
             term.setTermOut(out)
             term.initializeEmulator(80, 24)
+            // 避免首次连接时协商序列（如 `1;2c`）残留在屏幕上
+            try {
+                term.setDefaultUTF8Mode(true)
+                term.reset()
+            } catch (_: Throwable) {
+            }
 
             term.setFinishCallback(object : TermSession.FinishCallback {
                 override fun onSessionFinish(s: TermSession) {
@@ -533,6 +582,7 @@ class TerminalFullViewModel(
             })
 
             connectAttempt = 0
+            updateRecentHosts(prefs, hostId)
             prefs.edit().putLong("lastHostId", hostId).apply()
             _ui.value = _ui.value.copy(connecting = false, connected = true, status = "已连接", session = term)
         }

@@ -20,11 +20,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import com.dxkj.myshell.ui.screens.FilesScreen
 import com.dxkj.myshell.ui.screens.HostsScreen
 import com.dxkj.myshell.ui.screens.HostEditScreen
 import com.dxkj.myshell.ui.screens.KeysScreen
 import com.dxkj.myshell.ui.screens.TerminalFullScreen
+import com.dxkj.myshell.ui.screens.TerminalHubScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
 
 @Composable
@@ -41,7 +43,7 @@ fun AppNav() {
         BottomTab.Keys,
     )
 
-    val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true
+    val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true || currentRoute?.startsWith("terminal_hub") == true
     val showBottomBar = (currentRoute in items.map { it.route }) && !isTerminalFull
 
     Scaffold(
@@ -106,7 +108,7 @@ fun AppNav() {
             composable(BottomTab.Terminal.route) {
                 TerminalScreen(
                     contentPadding = innerPadding,
-                    onOpenFullTerminal = { hostId -> navController.navigate("terminal_full/$hostId") },
+                    onOpenFullTerminal = { hostId -> navController.navigate("terminal_hub?hostId=$hostId") },
                 )
             }
             composable(BottomTab.Files.route) { FilesScreen(contentPadding = innerPadding) }
@@ -131,6 +133,17 @@ fun AppNav() {
                 val hostId = entry.arguments?.getLong("hostId") ?: -1L
                 TerminalFullScreen(
                     hostId = hostId,
+                    onExit = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = "terminal_hub?hostId={hostId}",
+                arguments = listOf(navArgument("hostId") { type = NavType.LongType; defaultValue = -1L }),
+            ) { entry ->
+                val hostId = entry.arguments?.getLong("hostId") ?: -1L
+                TerminalHubScreen(
+                    initialHostId = hostId.takeIf { it > 0 },
                     onExit = { navController.popBackStack() },
                 )
             }

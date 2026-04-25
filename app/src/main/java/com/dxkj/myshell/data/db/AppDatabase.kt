@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
         HostEntity::class,
         KeyEntity::class,
     ],
-    version = 2,
+    version = 3,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun hostDao(): HostDao

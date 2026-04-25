@@ -2,6 +2,7 @@ package com.dxkj.myshell.data.repo
 
 import com.dxkj.myshell.data.db.HostDao
 import com.dxkj.myshell.data.db.HostEntity
+import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.flow.Flow
 
 class HostRepository(
@@ -34,6 +35,8 @@ class HostRepository(
         if (authType == "password") require(!password.isNullOrBlank()) { "password required" }
         // key auth: privateKeyId is optional for now; we will enforce once key UI is fully wired.
 
+        val passwordEnc = if (authType == "password") CryptoManager.encryptToBase64(password!!) else null
+
         return if (id == null) {
             dao.insert(
                 HostEntity(
@@ -42,7 +45,7 @@ class HostRepository(
                     port = port,
                     username = cleanUsername,
                     authType = authType,
-                    password = if (authType == "password") password else null,
+                    passwordEnc = passwordEnc,
                     privateKeyId = if (authType == "key") privateKeyId else null,
                     createdAtEpochMs = nowEpochMs,
                     updatedAtEpochMs = nowEpochMs,
@@ -57,7 +60,7 @@ class HostRepository(
                     port = port,
                     username = cleanUsername,
                     authType = authType,
-                    password = if (authType == "password") password else null,
+                    passwordEnc = passwordEnc,
                     privateKeyId = if (authType == "key") privateKeyId else null,
                     updatedAtEpochMs = nowEpochMs,
                 ),

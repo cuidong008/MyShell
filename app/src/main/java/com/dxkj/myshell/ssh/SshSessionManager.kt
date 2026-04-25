@@ -2,6 +2,7 @@ package com.dxkj.myshell.ssh
 
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.KeyRepository
+import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,6 +19,8 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.io.InputStream
+import java.io.OutputStream
 
 data class ConnectResult(val ok: Boolean, val message: String)
 
@@ -28,6 +31,7 @@ class SshSessionManager(
     private var session: Session? = null
     private var shell: Session.Shell? = null
     private var writer: java.io.OutputStream? = null
+    private var reader: java.io.InputStream? = null
     private var readerJob: Job? = null
     private var scope: CoroutineScope? = null
 
@@ -48,7 +52,7 @@ class SshSessionManager(
 
             when (host.authType) {
                 "password" -> {
-                    val pwd = host.password ?: ""
+                    val pwd = CryptoManager.decryptFromBase64(host.passwordEnc) ?: ""
                     try {
                         c.authPassword(host.username, pwd)
                     } catch (t: Throwable) {
@@ -58,7 +62,7 @@ class SshSessionManager(
                 "key" -> {
                     val keyId = host.privateKeyId
                         ?: return ConnectResult(false, "该主机选择了密钥认证，但未关联密钥")
-                    val key = keyRepo.getById(keyId) ?: return ConnectResult(false, "密钥不存在(id=$keyId)")
+                    val key = keyRepo.getDecryptedById(keyId) ?: return ConnectResult(false, "密钥不存在或解密失败(id=$keyId)")
 
                     val finder = object : PasswordFinder {
                         override fun reqPassword(resource: Resource<*>): CharArray {
@@ -135,7 +139,7 @@ class SshSessionManager(
 
                 // PTY might be rejected on some servers; try PTY first, then fallback without PTY.
                 try {
-                    sess.allocateDefaultPTY()
+                    sess.allocatePTY("xterm-256color", 80, 24, 0, 0, emptyMap())
                 } catch (t: Throwable) {
                     onOutput("PTY 分配失败（将尝试无 PTY）：${t::class.java.simpleName}: ${t.message}\n")
                 }
@@ -143,6 +147,7 @@ class SshSessionManager(
                 val sh = sess.startShell()
                 shell = sh
                 writer = sh.outputStream
+                reader = sh.inputStream
 
                 val input = sh.inputStream
                 readerJob = s.launch {
@@ -161,6 +166,29 @@ class SshSessionManager(
             } catch (t: Throwable) {
                 onClosed("启动 shell 失败：${t::class.java.simpleName}: ${t.message ?: ""}".trim())
             }
+        }
+    }
+
+    /**
+     * Opens a shell channel and returns its (stdin, stdout) streams for terminal emulation views.
+     * Must be called after [connect] succeeded.
+     */
+    suspend fun openShellStreams(): Result<Pair<OutputStream, InputStream>> {
+        val c = client ?: return Result.failure(IllegalStateException("未连接"))
+        return try {
+            val sess = c.startSession()
+            session = sess
+            try {
+                sess.allocatePTY("xterm-256color", 80, 24, 0, 0, emptyMap())
+            } catch (_: Throwable) {
+            }
+            val sh = sess.startShell()
+            shell = sh
+            writer = sh.outputStream
+            reader = sh.inputStream
+            Result.success(writer!! to reader!!)
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
@@ -210,6 +238,7 @@ class SshSessionManager(
             client = null
         }
         writer = null
+        reader = null
     }
 }
 

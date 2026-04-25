@@ -30,6 +30,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
+import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -219,7 +220,7 @@ class HostEditViewModel(
                 port = entity.port.toString(),
                 username = entity.username,
                 authType = entity.authType,
-                password = entity.password.orEmpty(),
+                password = CryptoManager.decryptFromBase64(entity.passwordEnc).orEmpty(),
             )
         }
     }

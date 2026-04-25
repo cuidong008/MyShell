@@ -17,6 +17,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +57,11 @@ fun FilesScreen(contentPadding: PaddingValues) {
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
     var path by remember { mutableStateOf("/") }
     var uploadUri by remember { mutableStateOf<Uri?>(null) }
+    var showMkdir by remember { mutableStateOf(false) }
+    var mkdirName by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf<RemoteEntryUi?>(null) }
+    var pendingRename by remember { mutableStateOf<RemoteEntryUi?>(null) }
+    var renameTo by remember { mutableStateOf("") }
 
     val pickUpload = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uploadUri = uri
@@ -102,6 +110,16 @@ fun FilesScreen(contentPadding: PaddingValues) {
         if (ui.status != null) {
             Text(ui.status ?: "", color = if (ui.statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
         }
+        if (ui.progressActive) {
+            if (ui.progressValue != null) {
+                LinearProgressIndicator(progress = { ui.progressValue ?: 0f }, modifier = Modifier.fillMaxWidth())
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            if (ui.progressText != null) {
+                Text(ui.progressText ?: "", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
 
         OutlinedTextField(
             value = path,
@@ -114,6 +132,14 @@ fun FilesScreen(contentPadding: PaddingValues) {
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { vm.list(path) }, enabled = ui.connected && !ui.loading) { Text(if (ui.loading) "加载中…" else "列目录") }
+            Button(
+                onClick = {
+                    path = vm.parentPath(path)
+                    vm.list(path)
+                },
+                enabled = ui.connected,
+            ) { Text("上级") }
+            Button(onClick = { showMkdir = true }, enabled = ui.connected) { Text("新建目录") }
             Button(onClick = { pickUpload.launch(arrayOf("*/*")) }, enabled = ui.connected) { Text("选择上传文件") }
             Button(
                 onClick = {
@@ -141,16 +167,89 @@ fun FilesScreen(contentPadding: PaddingValues) {
                             )
                         }
                         if (e.isDir) {
-                            Button(onClick = { path = e.path }) { Text("进入") }
+                            Button(onClick = { path = e.path; vm.list(path) }) { Text("进入") }
                         } else {
                             Button(onClick = { vm.download(e.path, e.name, context.contentResolver) }) { Text("下载") }
                         }
+                        Button(onClick = { pendingRename = e; renameTo = e.name }) { Text("重命名") }
+                        Button(onClick = { pendingDelete = e }) { Text("删除") }
                     }
                 }
             }
         } else {
             Text("（暂无列表）")
         }
+    }
+
+    if (showMkdir) {
+        AlertDialog(
+            onDismissRequest = { showMkdir = false },
+            title = { Text("新建目录") },
+            text = {
+                OutlinedTextField(
+                    value = mkdirName,
+                    onValueChange = { mkdirName = it },
+                    label = { Text("目录名") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val dir = if (path.endsWith("/")) path + mkdirName else "$path/$mkdirName"
+                        vm.mkdir(dir)
+                        mkdirName = ""
+                        showMkdir = false
+                    },
+                ) { Text("创建") }
+            },
+            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text("取消") } },
+        )
+    }
+
+    if (pendingDelete != null) {
+        val e = pendingDelete!!
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除？") },
+            text = { Text(e.path) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.delete(e.path)
+                        pendingDelete = null
+                    },
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+        )
+    }
+
+    if (pendingRename != null) {
+        val e = pendingRename!!
+        AlertDialog(
+            onDismissRequest = { pendingRename = null },
+            title = { Text("重命名") },
+            text = {
+                OutlinedTextField(
+                    value = renameTo,
+                    onValueChange = { renameTo = it },
+                    label = { Text("新名称") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val parent = vm.parentPath(e.path)
+                        val newPath = if (parent.endsWith("/")) parent + renameTo else "$parent/$renameTo"
+                        vm.rename(e.path, newPath)
+                        pendingRename = null
+                    },
+                ) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { pendingRename = null }) { Text("取消") } },
+        )
     }
 }
 
@@ -168,6 +267,9 @@ data class FilesUi(
     val status: String? = null,
     val statusOk: Boolean = false,
     val entries: List<RemoteEntryUi> = emptyList(),
+    val progressActive: Boolean = false,
+    val progressText: String? = null,
+    val progressValue: Float? = null,
 )
 
 class FilesViewModel(app: Application) : AndroidViewModel(app) {
@@ -215,19 +317,70 @@ class FilesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun mkdir(path: String) {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(status = "创建中…", statusOk = true)
+            val msg = sftp.mkdir(path)
+            _ui.value = _ui.value.copy(status = msg, statusOk = msg.startsWith("创建目录成功"))
+            list(parentPath(path))
+        }
+    }
+
+    fun delete(remotePath: String) {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(status = "删除中…", statusOk = true)
+            val msg = sftp.rm(remotePath)
+            _ui.value = _ui.value.copy(status = msg, statusOk = msg.startsWith("删除成功"))
+            list(parentPath(remotePath))
+        }
+    }
+
+    fun rename(oldPath: String, newPath: String) {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(status = "重命名中…", statusOk = true)
+            val msg = sftp.rename(oldPath, newPath)
+            _ui.value = _ui.value.copy(status = msg, statusOk = msg.startsWith("重命名成功"))
+            list(parentPath(newPath))
+        }
+    }
+
+    fun parentPath(path: String): String {
+        val p = path.trim().ifBlank { "/" }
+        if (p == "/") return "/"
+        val norm = if (p.endsWith("/")) p.dropLast(1) else p
+        val idx = norm.lastIndexOf('/')
+        return if (idx <= 0) "/" else norm.substring(0, idx)
+    }
+
     fun download(remotePath: String, filename: String, resolver: android.content.ContentResolver) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(status = "下载中…", statusOk = true)
-            val msg = sftp.downloadToDownloads(remotePath, filename, resolver)
+            _ui.value = _ui.value.copy(progressActive = true, progressText = "下载中…", progressValue = null)
+            val msg = sftp.downloadToDownloads(remotePath, filename, resolver) { sent, total ->
+                val v = if (total > 0) (sent.toFloat() / total.toFloat()).coerceIn(0f, 1f) else null
+                _ui.value = _ui.value.copy(
+                    progressActive = true,
+                    progressText = if (total > 0) "下载 ${sent}/${total} bytes" else "下载 ${sent} bytes",
+                    progressValue = v,
+                )
+            }
             _ui.value = _ui.value.copy(status = msg, statusOk = msg.startsWith("下载完成"))
+            _ui.value = _ui.value.copy(progressActive = false, progressText = null, progressValue = null)
         }
     }
 
     fun upload(remoteDir: String, uri: Uri, resolver: android.content.ContentResolver) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(status = "上传中…", statusOk = true)
-            val msg = sftp.uploadFromUri(remoteDir, uri, resolver)
+            _ui.value = _ui.value.copy(progressActive = true, progressText = "上传中…", progressValue = null)
+            val msg = sftp.uploadFromUri(remoteDir, uri, resolver) { sent, total ->
+                val v = if (total > 0) (sent.toFloat() / total.toFloat()).coerceIn(0f, 1f) else null
+                _ui.value = _ui.value.copy(
+                    progressActive = true,
+                    progressText = if (total > 0) "上传 ${sent}/${total} bytes" else "上传 ${sent} bytes",
+                    progressValue = v,
+                )
+            }
             _ui.value = _ui.value.copy(status = msg, statusOk = msg.startsWith("上传完成"))
+            _ui.value = _ui.value.copy(progressActive = false, progressText = null, progressValue = null)
         }
     }
 

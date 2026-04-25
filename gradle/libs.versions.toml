@@ -16,6 +16,7 @@ coroutines = "1.9.0"
 ksp = "2.1.10-1.0.30"
 sshj = "0.38.0"
 bouncycastle = "1.84"
+androidTermEmulator = "v1.0.70"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -43,6 +44,7 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 bcprov-jdk18on = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 bcpkix-jdk18on = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bouncycastle" }
+android-terminal-emulator = { group = "com.github.Mrfixsit.Android-Terminal-Emulator", name = "emulatorview", version.ref = "androidTermEmulator" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -11,13 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -28,8 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -46,6 +41,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import jackpal.androidterm.emulatorview.EmulatorView
+import jackpal.androidterm.emulatorview.TermSession
 
 @Composable
 fun TerminalScreen(contentPadding: PaddingValues) {
@@ -55,8 +52,6 @@ fun TerminalScreen(contentPadding: PaddingValues) {
     val ui by vm.ui.collectAsState()
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
-    var input by remember { mutableStateOf("") }
-    val scroll = rememberScrollState()
 
     Column(
         modifier = Modifier
@@ -117,41 +112,36 @@ fun TerminalScreen(contentPadding: PaddingValues) {
             Text(ui.status ?: "", color = if (ui.statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
         }
 
-        Divider()
-
-        Text("输出：", style = MaterialTheme.typography.titleMedium)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(scroll),
         ) {
-            Text(
-                text = ui.output,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("输入") },
-                singleLine = true,
-                enabled = ui.connected,
-            )
-            Button(
-                onClick = {
-                    vm.send(input + "\n")
-                    input = ""
-                },
-                enabled = ui.connected && input.isNotBlank(),
-            ) { Text("发送") }
+            if (ui.session == null) {
+                Text("连接后将显示全屏终端", modifier = Modifier.align(Alignment.Center))
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        val dm = ctx.resources.displayMetrics
+                        EmulatorView(ctx, ui.session, dm).apply {
+                            setTextSize(16)
+                            setUseCookedIME(false)
+                            setTermType("xterm-256color")
+                            isFocusable = true
+                            isFocusableInTouchMode = true
+                            requestFocus()
+                            onResume()
+                        }
+                    },
+                    update = { view ->
+                        if (view.getTermSession() !== ui.session) {
+                            view.attachSession(ui.session)
+                        }
+                        view.requestFocus()
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -161,7 +151,7 @@ data class TerminalUi(
     val connected: Boolean = false,
     val status: String? = null,
     val statusOk: Boolean = false,
-    val output: String = "",
+    val session: TermSession? = null,
 )
 
 class TerminalViewModel(app: Application) : AndroidViewModel(app) {
@@ -178,7 +168,7 @@ class TerminalViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connect(hostId: Long) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(connecting = true, status = null, statusOk = false)
+            _ui.value = _ui.value.copy(connecting = true, status = null, statusOk = false, session = null)
             val host = withContext(Dispatchers.IO) { hostRepo.getById(hostId) }
             if (host == null) {
                 _ui.value = _ui.value.copy(connecting = false, status = "主机不存在", statusOk = false)
@@ -192,28 +182,30 @@ class TerminalViewModel(app: Application) : AndroidViewModel(app) {
                 statusOk = result.ok,
             )
             if (result.ok) {
-                session.startShell(
-                    onOutput = { chunk ->
-                        _ui.value = _ui.value.copy(output = (_ui.value.output + chunk).takeLast(50_000))
-                    },
-                    onClosed = { msg ->
-                        _ui.value = _ui.value.copy(connected = false, status = msg, statusOk = false)
-                    },
-                )
+                val streams = withContext(Dispatchers.IO) { session.openShellStreams() }
+                if (streams.isFailure) {
+                    _ui.value = _ui.value.copy(
+                        connected = false,
+                        status = "打开 shell 失败：${streams.exceptionOrNull()?.message}",
+                        statusOk = false,
+                    )
+                    return@launch
+                }
+                val (out, input) = streams.getOrThrow()
+                val term = TermSession()
+                term.setTitle("SSH")
+                term.setTermIn(input)
+                term.setTermOut(out)
+                term.initializeEmulator(80, 24)
+                _ui.value = _ui.value.copy(session = term)
             }
-        }
-    }
-
-    fun send(text: String) {
-        viewModelScope.launch {
-            session.send(text)
         }
     }
 
     fun disconnect() {
         viewModelScope.launch {
             session.disconnect()
-            _ui.value = _ui.value.copy(connected = false, status = "已断开", statusOk = true)
+            _ui.value = _ui.value.copy(connected = false, status = "已断开", statusOk = true, session = null)
         }
     }
 

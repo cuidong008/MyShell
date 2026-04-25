@@ -8,6 +8,7 @@ import android.provider.MediaStore
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.ui.screens.RemoteEntryUi
+import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
@@ -23,6 +24,7 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import com.dxkj.myshell.ssh.SshCompatConfig
+import android.provider.OpenableColumns
 
 data class ListResult(val ok: Boolean, val message: String, val entries: List<RemoteEntryUi>)
 
@@ -48,14 +50,15 @@ class SftpClientManager(
             when (host.authType) {
                 "password" -> {
                     try {
-                        c.authPassword(host.username, host.password ?: "")
+                        val pwd = CryptoManager.decryptFromBase64(host.passwordEnc) ?: ""
+                        c.authPassword(host.username, pwd)
                     } catch (t: Throwable) {
                         return com.dxkj.myshell.ssh.ConnectResult(false, formatFailure("认证", host, t))
                     }
                 }
                 "key" -> {
                     val keyId = host.privateKeyId ?: return com.dxkj.myshell.ssh.ConnectResult(false, "未关联密钥")
-                    val key = keyRepo.getById(keyId) ?: return com.dxkj.myshell.ssh.ConnectResult(false, "密钥不存在")
+                    val key = keyRepo.getDecryptedById(keyId) ?: return com.dxkj.myshell.ssh.ConnectResult(false, "密钥不存在或解密失败")
                     val finder = object : PasswordFinder {
                         override fun reqPassword(resource: Resource<*>): CharArray = key.passphrase?.toCharArray() ?: charArrayOf()
                         override fun shouldRetry(resource: Resource<*>): Boolean = false
@@ -128,7 +131,47 @@ class SftpClientManager(
         }
     }
 
-    suspend fun downloadToDownloads(remotePath: String, filename: String, resolver: ContentResolver): String =
+    suspend fun mkdir(path: String): String = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext "未连接"
+        return@withContext try {
+            s.mkdir(path)
+            "创建目录成功：$path"
+        } catch (t: Throwable) {
+            "创建目录失败：${t.message ?: t::class.java.simpleName}"
+        }
+    }
+
+    suspend fun rm(remotePath: String): String = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext "未连接"
+        return@withContext try {
+            // Try file first, then directory.
+            try {
+                s.rm(remotePath)
+            } catch (_: Throwable) {
+                s.rmdir(remotePath)
+            }
+            "删除成功：$remotePath"
+        } catch (t: Throwable) {
+            "删除失败：${t.message ?: t::class.java.simpleName}"
+        }
+    }
+
+    suspend fun rename(oldPath: String, newPath: String): String = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext "未连接"
+        return@withContext try {
+            s.rename(oldPath, newPath)
+            "重命名成功"
+        } catch (t: Throwable) {
+            "重命名失败：${t.message ?: t::class.java.simpleName}"
+        }
+    }
+
+    suspend fun downloadToDownloads(
+        remotePath: String,
+        filename: String,
+        resolver: ContentResolver,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+    ): String =
         withContext(Dispatchers.IO) {
             val s = sftp ?: return@withContext "未连接"
             val safeName = filename.ifBlank { "download.bin" }
@@ -141,18 +184,20 @@ class SftpClientManager(
                 ?: return@withContext "创建下载文件失败"
 
             return@withContext try {
-                val tmp = File.createTempFile("myshell_dl_", null)
-                try {
-                    s.get(remotePath, tmp.absolutePath)
-                    resolver.openOutputStream(uri)?.use { out ->
-                        tmp.inputStream().use { input -> input.copyTo(out) }
-                    } ?: return@withContext "无法写入下载文件"
-                } finally {
-                    try {
-                        tmp.delete()
-                    } catch (_: Throwable) {
-                    }
+                val total = try {
+                    s.size(remotePath)
+                } catch (_: Throwable) {
+                    -1L
                 }
+                val dest = OutputStreamDestFile(
+                    name = safeName,
+                    length = total,
+                    open = { _ ->
+                        resolver.openOutputStream(uri) ?: throw IllegalStateException("无法写入下载文件")
+                    },
+                    onProgress = { bytes -> onProgress(bytes, total) },
+                )
+                s.get(remotePath, dest)
                 "下载完成：$safeName"
             } catch (t: Throwable) {
                 try {
@@ -163,25 +208,26 @@ class SftpClientManager(
             }
         }
 
-    suspend fun uploadFromUri(remoteDir: String, uri: Uri, resolver: ContentResolver): String =
+    suspend fun uploadFromUri(
+        remoteDir: String,
+        uri: Uri,
+        resolver: ContentResolver,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+    ): String =
         withContext(Dispatchers.IO) {
             val s = sftp ?: return@withContext "未连接"
             val dir = remoteDir.ifBlank { "/" }
             val name = queryDisplayName(resolver, uri) ?: "upload.bin"
             val remotePath = if (dir.endsWith("/")) dir + name else "$dir/$name"
             return@withContext try {
-                val tmp = File.createTempFile("myshell_up_", null)
-                try {
-                    resolver.openInputStream(uri)?.use { input ->
-                        tmp.outputStream().use { out -> input.copyTo(out) }
-                    } ?: return@withContext "无法读取要上传的文件"
-                    s.put(tmp.absolutePath, remotePath)
-                } finally {
-                    try {
-                        tmp.delete()
-                    } catch (_: Throwable) {
-                    }
-                }
+                val total = queryLength(resolver, uri)
+                val src = InputStreamSourceFile(
+                    name = name,
+                    length = total,
+                    open = { resolver.openInputStream(uri) ?: throw IllegalStateException("无法读取要上传的文件") },
+                    onProgress = { bytes -> onProgress(bytes, total) },
+                )
+                s.put(src, remotePath)
                 "上传完成：$remotePath"
             } catch (t: Throwable) {
                 "上传失败：${t.message ?: t::class.java.simpleName}"
@@ -198,6 +244,19 @@ class SftpClientManager(
             }
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun queryLength(resolver: ContentResolver, uri: Uri): Long {
+        return try {
+            resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0) c.getLong(idx) else -1L
+                } else -1L
+            } ?: -1L
+        } catch (_: Throwable) {
+            -1L
         }
     }
 

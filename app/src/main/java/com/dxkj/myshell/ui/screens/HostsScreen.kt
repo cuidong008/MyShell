@@ -15,11 +15,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,7 +39,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.Room
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.HostRepository
@@ -57,6 +58,15 @@ fun HostsScreen(
         factory = HostsViewModel.factory(context.applicationContext as Application),
     )
     val hosts by vm.hosts.collectAsState()
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(hosts, query) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) hosts else hosts.filter {
+            it.name.lowercase().contains(q) ||
+                it.host.lowercase().contains(q) ||
+                it.username.lowercase().contains(q)
+        }
+    }
 
     var pendingDelete by remember { mutableStateOf<HostEntity?>(null) }
 
@@ -65,7 +75,19 @@ fun HostsScreen(
             .fillMaxSize()
             .padding(contentPadding),
     ) {
-        if (hosts.isEmpty()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "search") },
+                label = { Text("搜索主机") },
+            )
+
+            if (hosts.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -76,20 +98,21 @@ fun HostsScreen(
                 Text(text = "还没有主机", style = MaterialTheme.typography.headlineSmall)
                 Text(text = "点击右下角 + 新增一个 SSH 主机")
             }
-        } else {
+            } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(hosts, key = { it.id }) { item ->
+                items(filtered, key = { it.id }) { item ->
                     HostRow(
                         host = item,
                         onClick = { onEditHost(item.id) },
                         onDelete = { pendingDelete = item },
                     )
                 }
+            }
             }
         }
 

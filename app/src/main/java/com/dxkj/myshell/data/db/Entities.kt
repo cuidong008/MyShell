@@ -11,7 +11,7 @@ data class HostEntity(
     val port: Int,
     val username: String,
     val authType: String, // "password" | "key"
-    val password: String?, // only for password auth (MVP; later move to encrypted storage)
+    val passwordEnc: String?, // encrypted; base64(iv+ciphertext)
     val privateKeyId: Long?, // only for key auth (future)
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
@@ -21,8 +21,8 @@ data class HostEntity(
 data class KeyEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val privateKeyPem: String, // MVP: plaintext; later encrypt with Keystore
-    val passphrase: String?, // MVP; later avoid storing passphrase
+    val privateKeyPemEnc: String, // encrypted; base64(iv+ciphertext)
+    val passphraseEnc: String?, // encrypted; base64(iv+ciphertext)
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
 )

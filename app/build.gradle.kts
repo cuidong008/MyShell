@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.sshj)
     implementation(libs.bcprov.jdk18on)
     implementation(libs.bcpkix.jdk18on)
+    implementation(libs.android.terminal.emulator)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

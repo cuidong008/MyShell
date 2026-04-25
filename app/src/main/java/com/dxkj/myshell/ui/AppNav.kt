@@ -24,6 +24,7 @@ import com.dxkj.myshell.ui.screens.FilesScreen
 import com.dxkj.myshell.ui.screens.HostsScreen
 import com.dxkj.myshell.ui.screens.HostEditScreen
 import com.dxkj.myshell.ui.screens.KeysScreen
+import com.dxkj.myshell.ui.screens.TerminalFullScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
 
 @Composable
@@ -40,31 +41,34 @@ fun AppNav() {
         BottomTab.Keys,
     )
 
-    val showBottomBar = currentRoute in items.map { it.route }
+    val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true
+    val showBottomBar = (currentRoute in items.map { it.route }) && !isTerminalFull
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        when (currentRoute) {
-                            BottomTab.Hosts.route -> BottomTab.Hosts.label
-                            BottomTab.Terminal.route -> BottomTab.Terminal.label
-                            BottomTab.Files.route -> BottomTab.Files.label
-                            BottomTab.Keys.route -> BottomTab.Keys.label
-                            "host_edit?hostId={hostId}" -> "编辑主机"
-                            else -> "MyShell"
-                        },
-                    )
-                },
-                navigationIcon = {
-                    if (!showBottomBar) {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+            if (!isTerminalFull) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            when (currentRoute) {
+                                BottomTab.Hosts.route -> BottomTab.Hosts.label
+                                BottomTab.Terminal.route -> BottomTab.Terminal.label
+                                BottomTab.Files.route -> BottomTab.Files.label
+                                BottomTab.Keys.route -> BottomTab.Keys.label
+                                "host_edit?hostId={hostId}" -> "编辑主机"
+                                else -> "MyShell"
+                            },
+                        )
+                    },
+                    navigationIcon = {
+                        if (!showBottomBar) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         bottomBar = {
             if (showBottomBar) {
@@ -99,7 +103,12 @@ fun AppNav() {
                     onEditHost = { id -> navController.navigate("host_edit?hostId=$id") },
                 )
             }
-            composable(BottomTab.Terminal.route) { TerminalScreen(contentPadding = innerPadding) }
+            composable(BottomTab.Terminal.route) {
+                TerminalScreen(
+                    contentPadding = innerPadding,
+                    onOpenFullTerminal = { hostId -> navController.navigate("terminal_full/$hostId") },
+                )
+            }
             composable(BottomTab.Files.route) { FilesScreen(contentPadding = innerPadding) }
             composable(BottomTab.Keys.route) { KeysScreen(contentPadding = innerPadding) }
 
@@ -112,6 +121,17 @@ fun AppNav() {
                     contentPadding = innerPadding,
                     hostId = hostId.takeIf { it > 0 },
                     onDone = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = "terminal_full/{hostId}",
+                arguments = listOf(navArgument("hostId") { type = NavType.LongType }),
+            ) { entry ->
+                val hostId = entry.arguments?.getLong("hostId") ?: -1L
+                TerminalFullScreen(
+                    hostId = hostId,
+                    onExit = { navController.popBackStack() },
                 )
             }
         }

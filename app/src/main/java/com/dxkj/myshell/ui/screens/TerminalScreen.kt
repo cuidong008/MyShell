@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -39,19 +39,27 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import jackpal.androidterm.emulatorview.EmulatorView
+import android.content.Context
 import jackpal.androidterm.emulatorview.TermSession
 
 @Composable
-fun TerminalScreen(contentPadding: PaddingValues) {
+fun TerminalScreen(
+    contentPadding: PaddingValues,
+    onOpenFullTerminal: (Long) -> Unit,
+) {
     val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
     val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(context.applicationContext as Application))
     val hosts by vm.hosts.collectAsState()
     val ui by vm.ui.collectAsState()
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
+    val lastHostId = remember { prefs.getLong("lastHostId", -1L).takeIf { it > 0 } }
+    LaunchedEffect(hosts.size) {
+        if (selectedHostId == null && lastHostId != null && hosts.any { it.id == lastHostId }) {
+            selectedHostId = lastHostId
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -96,52 +104,22 @@ fun TerminalScreen(contentPadding: PaddingValues) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = {
-                    val id = selectedHostId
-                    if (id != null) vm.connect(id)
+                    val id = selectedHostId ?: return@Button
+                    onOpenFullTerminal(id)
                 },
-                enabled = !ui.connecting && !ui.connected,
-            ) { Text(if (ui.connecting) "连接中…" else if (ui.connected) "已连接" else "连接") }
+                enabled = selectedHostId != null,
+            ) { Text("打开全屏终端") }
 
-            Button(
-                onClick = { vm.disconnect() },
-                enabled = ui.connected,
-            ) { Text("断开") }
+            if (lastHostId != null && selectedHostId != lastHostId) {
+                Button(
+                    onClick = { onOpenFullTerminal(lastHostId) },
+                    enabled = hosts.any { it.id == lastHostId },
+                ) { Text("继续上次会话") }
+            }
         }
 
         if (ui.status != null) {
             Text(ui.status ?: "", color = if (ui.statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if (ui.session == null) {
-                Text("连接后将显示全屏终端", modifier = Modifier.align(Alignment.Center))
-            } else {
-                AndroidView(
-                    factory = { ctx ->
-                        val dm = ctx.resources.displayMetrics
-                        EmulatorView(ctx, ui.session, dm).apply {
-                            setTextSize(16)
-                            setUseCookedIME(false)
-                            setTermType("xterm-256color")
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-                            requestFocus()
-                            onResume()
-                        }
-                    },
-                    update = { view ->
-                        if (view.getTermSession() !== ui.session) {
-                            view.attachSession(ui.session)
-                        }
-                        view.requestFocus()
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
         }
     }
 }
@@ -166,48 +144,7 @@ class TerminalViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = kotlinx.coroutines.flow.MutableStateFlow(TerminalUi())
     val ui: StateFlow<TerminalUi> = _ui
 
-    fun connect(hostId: Long) {
-        viewModelScope.launch {
-            _ui.value = _ui.value.copy(connecting = true, status = null, statusOk = false, session = null)
-            val host = withContext(Dispatchers.IO) { hostRepo.getById(hostId) }
-            if (host == null) {
-                _ui.value = _ui.value.copy(connecting = false, status = "主机不存在", statusOk = false)
-                return@launch
-            }
-            val result = withContext(Dispatchers.IO) { session.connect(host) }
-            _ui.value = _ui.value.copy(
-                connecting = false,
-                connected = result.ok,
-                status = result.message,
-                statusOk = result.ok,
-            )
-            if (result.ok) {
-                val streams = withContext(Dispatchers.IO) { session.openShellStreams() }
-                if (streams.isFailure) {
-                    _ui.value = _ui.value.copy(
-                        connected = false,
-                        status = "打开 shell 失败：${streams.exceptionOrNull()?.message}",
-                        statusOk = false,
-                    )
-                    return@launch
-                }
-                val (out, input) = streams.getOrThrow()
-                val term = TermSession()
-                term.setTitle("SSH")
-                term.setTermIn(input)
-                term.setTermOut(out)
-                term.initializeEmulator(80, 24)
-                _ui.value = _ui.value.copy(session = term)
-            }
-        }
-    }
-
-    fun disconnect() {
-        viewModelScope.launch {
-            session.disconnect()
-            _ui.value = _ui.value.copy(connected = false, status = "已断开", statusOk = true, session = null)
-        }
-    }
+    // 终端连接/断开已迁移到全屏页的 ViewModel；这里仅保留主机列表供选择。
 
     companion object {
         fun factory(app: Application): ViewModelProvider.Factory =

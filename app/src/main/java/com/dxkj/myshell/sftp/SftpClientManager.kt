@@ -11,6 +11,7 @@ import com.dxkj.myshell.ui.screens.RemoteEntryUi
 import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.transport.TransportException
@@ -124,9 +125,20 @@ class SftpClientManager(
                 .filter { it.name != "." && it.name != ".." }
                 .map {
                     val modeOctal = runCatching {
-                        val m = it.attributes.mode
-                        val v = (m as? Number)?.toLong() ?: 0L
-                        String.format("%o", (v and 0xfffL).toInt())
+                        val attrs = it.attributes
+                        // Kotlin/Java 下 mode 类型因版本而异，统一用反射更稳；0 表示未提供权限位
+                        val raw = attrs.javaClass.methods
+                            .firstOrNull { m -> m.name == "getMode" && m.parameterCount == 0 }
+                            ?.invoke(attrs)
+                        val v = when (raw) {
+                            is Int -> raw.toLong() and 0xffffffffL
+                            is Long -> raw
+                            is java.lang.Integer -> raw.toLong() and 0xffffffffL
+                            is java.lang.Long -> raw.toLong()
+                            else -> null
+                        } ?: return@runCatching ""
+                        val masked = (v and 0xfffL).toInt()
+                        if (masked == 0) "" else String.format(Locale.US, "%o", masked)
                     }.getOrDefault("")
                     RemoteEntryUi(
                         name = it.name,

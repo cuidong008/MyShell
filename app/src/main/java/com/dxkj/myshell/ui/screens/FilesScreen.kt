@@ -1,6 +1,7 @@
 package com.dxkj.myshell.ui.screens
 
 import android.app.Application
+import android.os.SystemClock
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -62,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -102,6 +104,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
+import java.util.Locale
+
+/** 列表行主区域：两次轻触间隔内视为双击（目录进入 / 文件编辑） */
+private const val FILE_ENTRY_DOUBLE_TAP_MS = 500L
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -201,6 +207,7 @@ fun FilesScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(displayEntries, key = { it.path }) { e ->
+                    var firstTapUptime by remember(e.path) { mutableLongStateOf(0L) }
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)),
                         modifier = Modifier.fillMaxWidth(),
@@ -215,7 +222,22 @@ fun FilesScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        if (e.isDir) vm.list(e.path)
+                                        val now = SystemClock.uptimeMillis()
+                                        if (firstTapUptime != 0L && now - firstTapUptime <= FILE_ENTRY_DOUBLE_TAP_MS) {
+                                            firstTapUptime = 0L
+                                            if (e.isDir) {
+                                                vm.list(e.path)
+                                            } else {
+                                                pendingEdit = e
+                                                editLoading = true
+                                                vm.readRemoteText(e.path) { ok, textOrErr ->
+                                                    editLoading = false
+                                                    editText = if (ok) textOrErr else "加载失败：$textOrErr"
+                                                }
+                                            }
+                                        } else {
+                                            firstTapUptime = now
+                                        }
                                     },
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -231,8 +253,10 @@ fun FilesScreen(
                                     Text(
                                         buildString {
                                             append(if (e.isDir) "目录" else "文件")
-                                            if (e.modeOctal.isNotBlank()) append(" · ").append(e.modeOctal)
-                                            if (!e.isDir) append(" · ").append("${e.size} B")
+                                            if (e.modeOctal.isNotBlank() && e.modeOctal != "0") {
+                                                append(" · ").append(e.modeOctal)
+                                            }
+                                            if (!e.isDir) append(" · ").append(formatHumanFileSize(e.size))
                                         },
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall,
@@ -298,7 +322,7 @@ fun FilesScreen(
                                 CompactIconTap(
                                     onClick = {
                                         pendingChmod = e
-                                        chmodInput = e.modeOctal.ifBlank { "644" }
+                                        chmodInput = if (e.modeOctal.isBlank() || e.modeOctal == "0") "644" else e.modeOctal
                                     },
                                     enabled = true,
                                     icon = Icons.Outlined.Info,
@@ -508,7 +532,12 @@ fun FilesScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(e.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("当前（八进制，低 12 位）：${e.modeOctal.ifBlank { "未知" }}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "当前（八进制）：${
+                            if (e.modeOctal.isBlank() || e.modeOctal == "0") "未知" else e.modeOctal
+                        }",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                     OutlinedTextField(
                         value = chmodInput,
                         onValueChange = { chmodInput = it },
@@ -618,6 +647,29 @@ private fun ClickableRemotePath(
             )
         }
     }
+}
+
+/** 可读文件大小（二进制单位，与常见系统工具一致） */
+private fun formatHumanFileSize(bytes: Long): String {
+    if (bytes < 0) return "—"
+    if (bytes < 1024) return "${bytes} B"
+    val kb = bytes.toDouble() / 1024.0
+    if (kb < 1024) return trimFrac(String.format(Locale.US, "%.2f KiB", kb))
+    val mb = kb / 1024.0
+    if (mb < 1024) return trimFrac(String.format(Locale.US, "%.2f MiB", mb))
+    val gb = mb / 1024.0
+    if (gb < 1024) return trimFrac(String.format(Locale.US, "%.2f GiB", gb))
+    val tb = gb / 1024.0
+    return trimFrac(String.format(Locale.US, "%.2f TiB", tb))
+}
+
+private fun trimFrac(s: String): String {
+    val i = s.lastIndexOf(' ')
+    if (i <= 0) return s
+    val n = s.substring(0, i)
+    val unit = s.substring(i + 1)
+    if ('.' !in n) return s
+    return n.trimEnd('0').trimEnd('.') + " " + unit
 }
 
 private fun Modifier.simpleVerticalScrollbar(

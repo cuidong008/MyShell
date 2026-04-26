@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -28,7 +29,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -53,6 +59,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.animation.core.animateDpAsState
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -151,6 +158,8 @@ fun AppNav() {
             }
         },
     ) { innerPadding ->
+        // 横屏侧边栏模式下：不要给“整个右侧工作区”统一加大块顶部 padding（会显得空白很大）。
+        // 改为由各页面的“顶部控件”自己避开状态栏（只对需要点击的顶栏做 statusBarsPadding）。
         val contentPaddingForPane = if (useRail) PaddingValues(0.dp) else innerPadding
         Box(modifier = Modifier.fillMaxSize()) {
             // 关键修复：当用户快速切换导航导致终端 UI 被销毁时，库内部会出现 TermKeyListener 为 null 的 NPE。
@@ -164,18 +173,47 @@ fun AppNav() {
                     // 复制按钮：复制“会话”（克隆连接），不走剪贴板
                     var renameSid by remember { mutableStateOf<Long?>(null) }
                     var renameText by remember { mutableStateOf("") }
+                    var railExpanded by remember { mutableStateOf(true) }
+                    val railWidth by animateDpAsState(targetValue = if (railExpanded) 180.dp else 0.dp, label = "railWidth")
+
+                    // 折叠状态：在左侧边缘保留一个小把手按钮用于展开
+                    if (!railExpanded) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .fillMaxHeight()
+                                .systemBarsPadding(),
+                            contentAlignment = Alignment.TopStart,
+                        ) {
+                            IconButton(onClick = { railExpanded = true }, modifier = Modifier.size(40.dp)) {
+                                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "open sidebar")
+                            }
+                        }
+                    }
 
                     Surface(
                         tonalElevation = 2.dp,
-                        modifier = Modifier.fillMaxHeight().width(260.dp),
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(railWidth),
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding()
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
+                        if (railExpanded) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .statusBarsPadding()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                // 顶部：折叠按钮（参考 ShellBean iPad）
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    IconButton(onClick = { railExpanded = false }, modifier = Modifier.size(36.dp)) {
+                                        Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "collapse sidebar")
+                                    }
+                                }
                             // 顶部分组（无图标占位，文字右对齐，高亮选中）
                             items.forEach { tab ->
                                 val selected = currentRoute == tab.route
@@ -233,6 +271,7 @@ fun AppNav() {
                                         }
                                     },
                                 )
+                            }
                             }
                         }
                     }

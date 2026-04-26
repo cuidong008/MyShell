@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Save
@@ -73,6 +75,9 @@ fun TerminalHubScreen(
     onExit: () -> Unit,
     immersive: Boolean = true,
     showBack: Boolean = true,
+    showTopOverlay: Boolean = true,
+    compactTopOverlay: Boolean = false,
+    onToggleTopOverlay: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -198,28 +203,80 @@ fun TerminalHubScreen(
             )
         }
 
-        // 顶部：标签栏 + 工具条
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .systemBarsPadding()
-                .padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Row(
+        // 顶部：标签栏 + 工具条（嵌入会话工作区时可关闭，避免占空间）
+        if (!showTopOverlay && compactTopOverlay && onToggleTopOverlay != null) {
+            // 隐藏时保留一个“小把手”按钮，用于展开工具条
+            FilledTonalIconButton(
+                onClick = onToggleTopOverlay,
                 modifier = Modifier
-                    .background(Color(0xAA111111), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .align(Alignment.TopStart)
+                    // 嵌入模式也要避开状态栏，否则会被“时间那条”吃掉点击
+                    .statusBarsPadding()
+                    .padding(8.dp),
             ) {
-                if (showBack) {
-                    FilledTonalIconButton(onClick = onExit) {
-                        Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+                Icon(imageVector = Icons.Outlined.KeyboardArrowDown, contentDescription = "show toolbar")
+            }
+        }
+
+        if (showTopOverlay) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    // 顶部工具条需要避开状态栏，避免点不到；其它内容仍可从顶部开始显示
+                    .statusBarsPadding()
+                    .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (compactTopOverlay) {
+                    // 精简工具条：常用按钮 + 收起按钮
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xAA111111), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilledTonalIconButton(onClick = { showHostPicker = true }) {
+                            Icon(imageVector = Icons.Outlined.Add, contentDescription = "new")
+                        }
+                        if (active != null) {
+                            FilledTonalIconButton(onClick = { TerminalSessionPool.reconnect(active.sessionId) }, enabled = !active.connected && !active.connecting) {
+                                Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "reconnect")
+                            }
+                            FilledTonalIconButton(onClick = { TerminalSessionPool.disconnect(active.sessionId) }, enabled = active.connected) {
+                                Icon(imageVector = Icons.Outlined.PowerSettingsNew, contentDescription = "disconnect")
+                            }
+                            FilledTonalIconButton(
+                                onClick = {
+                                    val t = clipboard.getText()?.text.orEmpty()
+                                    if (t.isNotBlank()) active.term?.write(t)
+                                },
+                                enabled = active.term != null,
+                            ) {
+                                Icon(imageVector = Icons.Outlined.ContentPaste, contentDescription = "paste")
+                            }
+                        }
+                        if (onToggleTopOverlay != null) {
+                            FilledTonalIconButton(onClick = onToggleTopOverlay) {
+                                Icon(imageVector = Icons.Outlined.KeyboardArrowUp, contentDescription = "hide toolbar")
+                            }
+                        }
                     }
-                }
+                } else {
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xAA111111), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showBack) {
+                        FilledTonalIconButton(onClick = onExit) {
+                            Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+                        }
+                    }
 
                 sessions.forEach { s ->
                     Row(
@@ -240,19 +297,19 @@ fun TerminalHubScreen(
                     }
                 }
 
-                FilledTonalIconButton(onClick = { showHostPicker = true }) {
-                    Icon(imageVector = Icons.Outlined.Add, contentDescription = "new")
+                    FilledTonalIconButton(onClick = { showHostPicker = true }) {
+                        Icon(imageVector = Icons.Outlined.Add, contentDescription = "new")
+                    }
                 }
-            }
 
-            if (active != null) {
-                Row(
-                    modifier = Modifier
-                        .background(Color(0xAA111111), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                if (active != null) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xAA111111), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     FilledTonalIconButton(
                         onClick = { schemeId = (schemeId + 1) % 7 },
                         enabled = active.term != null,
@@ -317,6 +374,8 @@ fun TerminalHubScreen(
                         onClick = { TerminalSessionPool.exportLog(active.sessionId) },
                         enabled = active.term != null,
                     ) { Icon(imageVector = Icons.Outlined.Save, contentDescription = "save log") }
+                    }
+                }
                 }
             }
         }
@@ -327,7 +386,7 @@ fun TerminalHubScreen(
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .systemBarsPadding()
+                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
                     .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
                     .background(Color(0xAA111111), RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -338,7 +397,7 @@ fun TerminalHubScreen(
             HubKeyBar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .systemBarsPadding()
+                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
                     .background(Color(0xCC000000))
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 onKey = { seq -> active.term.write(seq) },

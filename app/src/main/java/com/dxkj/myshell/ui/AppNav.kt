@@ -4,12 +4,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -35,6 +41,10 @@ fun AppNav() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
+    val isWide = cfg.screenWidthDp >= 840
+    val useRail = isLandscape && isWide
 
     val items = listOf(
         BottomTab.Hosts,
@@ -73,7 +83,7 @@ fun AppNav() {
             }
         },
         bottomBar = {
-            if (showBottomBar) {
+            if (showBottomBar && !useRail) {
                 NavigationBar {
                     items.forEach { tab ->
                         NavigationBarItem(
@@ -93,26 +103,46 @@ fun AppNav() {
             }
         },
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = BottomTab.Hosts.route,
-            modifier = Modifier,
-        ) {
-            composable(BottomTab.Hosts.route) {
-                HostsScreen(
-                    contentPadding = innerPadding,
-                    onAddHost = { navController.navigate("host_edit?hostId=-1") },
-                    onEditHost = { id -> navController.navigate("host_edit?hostId=$id") },
-                )
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (showBottomBar && useRail) {
+                NavigationRail {
+                    items.forEach { tab ->
+                        NavigationRailItem(
+                            selected = currentRoute == tab.route,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                        )
+                    }
+                }
             }
-            composable(BottomTab.Terminal.route) {
-                TerminalScreen(
-                    contentPadding = innerPadding,
-                    onOpenFullTerminal = { hostId -> navController.navigate("terminal_hub?hostId=$hostId") },
-                )
-            }
-            composable(BottomTab.Files.route) { FilesScreen(contentPadding = innerPadding) }
-            composable(BottomTab.Keys.route) { KeysScreen(contentPadding = innerPadding) }
+
+            NavHost(
+                navController = navController,
+                startDestination = BottomTab.Hosts.route,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                composable(BottomTab.Hosts.route) {
+                    HostsScreen(
+                        contentPadding = innerPadding,
+                        onAddHost = { navController.navigate("host_edit?hostId=-1") },
+                        onEditHost = { id -> navController.navigate("host_edit?hostId=$id") },
+                    )
+                }
+                composable(BottomTab.Terminal.route) {
+                    TerminalScreen(
+                        contentPadding = innerPadding,
+                        onOpenFullTerminal = { hostId -> navController.navigate("terminal_hub?hostId=$hostId") },
+                    )
+                }
+                composable(BottomTab.Files.route) { FilesScreen(contentPadding = innerPadding) }
+                composable(BottomTab.Keys.route) { KeysScreen(contentPadding = innerPadding) }
 
             composable(
                 route = "host_edit?hostId={hostId}",
@@ -146,6 +176,7 @@ fun AppNav() {
                     initialHostId = hostId.takeIf { it > 0 },
                     onExit = { navController.popBackStack() },
                 )
+            }
             }
         }
     }

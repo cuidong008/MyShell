@@ -54,6 +54,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
@@ -308,7 +309,7 @@ fun FilesScreen(
             }
         }
 
-        // 底部一行：操作图标 + 可点击路径（如 /home/cuid/xx 中点 cuid → /home/cuid）
+        // 底部一行：操作图标 + 路径按钮（/ > home > cuid，点哪段进哪段）
         if (ui.connected) {
             Surface(
                 tonalElevation = 3.dp,
@@ -521,7 +522,7 @@ fun FilesScreen(
     }
 }
 
-/** 显示为 `/a/b/c` 样式：`/` 与各段目录名可点击，点击某段进入该段对应路径 */
+/** 底部路径：`/ > home > cuid`，每一段为按钮，点击跳转到对应目录 */
 @Composable
 private fun ClickableRemotePath(
     currentPath: String,
@@ -535,40 +536,38 @@ private fun ClickableRemotePath(
     } else {
         norm.removePrefix("/").split('/').filter { it.isNotEmpty() }
     }
-    val primary = MaterialTheme.colorScheme.primary
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val style = MaterialTheme.typography.bodyMedium
+    val sepStyle = MaterialTheme.typography.bodyMedium
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        if (parts.isEmpty()) {
-            Text(
-                text = "/",
-                style = style,
-                color = primary,
-                modifier = Modifier.clickable(enabled = enabled) { onNavigate("/") },
-            )
-            return@Row
-        }
-        Text(
-            text = "/",
-            style = style,
-            color = primary,
-            modifier = Modifier.clickable(enabled = enabled) { onNavigate("/") },
-        )
+        TextButton(
+            onClick = { onNavigate("/") },
+            enabled = enabled,
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+        ) { Text("/") }
+
         var acc = ""
-        parts.forEachIndexed { i, part ->
-            if (i > 0) {
-                Text(text = "/", style = style, color = muted)
-            }
-            acc = if (i == 0) "/$part" else "$acc/$part"
+        parts.forEachIndexed { _, part ->
             Text(
-                text = part,
-                style = style,
-                color = primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(enabled = enabled) { onNavigate(acc) },
+                text = " > ",
+                style = sepStyle,
+                color = muted,
             )
+            acc = if (acc.isEmpty()) "/$part" else "$acc/$part"
+            // 必须固定当前路径到局部变量，否则 onClick 读到的是循环结束后的 acc（闭包陷阱）
+            val targetPath = acc
+            TextButton(
+                onClick = { onNavigate(targetPath) },
+                enabled = enabled,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    text = part,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }

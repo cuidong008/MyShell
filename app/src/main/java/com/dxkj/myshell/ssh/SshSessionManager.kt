@@ -69,10 +69,10 @@ private data class ForwardRestoreRule(
     val preferredLocalPort: Int,
 )
 
-/** [onActiveForwardsChanged] 在活跃转发条数变化时调用（用于前台保活等），勿抛异常。 */
+/** [onPortForwardUiChanged] 在转发列表 / 已发现 / 忽略集变化时调用（前台保活、按主机合并 UI 等），勿抛异常。 */
 class SshSessionManager(
     private val keyRepo: KeyRepository,
-    private val onActiveForwardsChanged: () -> Unit = {},
+    private val onPortForwardUiChanged: () -> Unit = {},
 ) {
     private var client: SSHClient? = null
     private var session: Session? = null
@@ -106,6 +106,7 @@ class SshSessionManager(
 
     private fun refreshIgnoredFlow() {
         _ignoredRemotePorts.value = ignoredRemoteKeys.toSet()
+        notifyPortForwardUiChanged()
     }
 
     fun isRemotePortIgnored(remoteHost: String, remotePort: Int): Boolean =
@@ -125,8 +126,18 @@ class SshSessionManager(
         refreshIgnoredFlow()
     }
 
+    /** 取消对某远端地址的「忽略」（同主机多会话合并展示时，会由池对全部连接调用）。 */
+    @Synchronized
+    fun clearIgnoredRemote(remoteHost: String, remotePort: Int) {
+        val key = remotePortKey(remoteHost, remotePort)
+        if (ignoredRemoteKeys.remove(key)) {
+            refreshIgnoredFlow()
+        }
+    }
+
     private fun refreshDiscoveredFlow() {
         _discoveredList.value = discoveredMap.values.reversed()
+        notifyPortForwardUiChanged()
     }
 
     @Synchronized
@@ -179,6 +190,7 @@ class SshSessionManager(
         terminalSniffBuf.clear()
         ignoredRemoteKeys.clear()
         _ignoredRemotePorts.value = emptySet()
+        notifyPortForwardUiChanged()
     }
 
     fun isForwardingRemote(remoteHost: String, remotePort: Int): Boolean {
@@ -270,12 +282,12 @@ class SshSessionManager(
 
     private fun refreshPortForwardFlow() {
         _portForwards.value = activeForwards.values.map { it.item }.sortedWith(compareBy({ it.localPort }, { it.id }))
-        notifyPortForwardListeners()
+        notifyPortForwardUiChanged()
     }
 
-    private fun notifyPortForwardListeners() {
+    private fun notifyPortForwardUiChanged() {
         try {
-            onActiveForwardsChanged()
+            onPortForwardUiChanged()
         } catch (_: Throwable) {
         }
     }
@@ -430,7 +442,7 @@ class SshSessionManager(
         }
         forwardSupervisor.cancelChildren()
         _portForwards.value = emptyList()
-        notifyPortForwardListeners()
+        notifyPortForwardUiChanged()
     }
 
     suspend fun connect(host: HostEntity): ConnectResult {

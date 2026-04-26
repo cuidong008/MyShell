@@ -34,7 +34,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +47,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.dxkj.myshell.ssh.DiscoveredListen
 import com.dxkj.myshell.ssh.PortForwardItem
+import com.dxkj.myshell.terminal.HostPortForwardUi
+import com.dxkj.myshell.terminal.MergedForwardUi
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import kotlinx.coroutines.launch
 
@@ -64,24 +65,24 @@ fun PortForwardScreen(
     val session = remember(sessions, linkedSessionId) {
         linkedSessionId?.let { id -> sessions.firstOrNull { it.sessionId == id } }
     }
-    val forwardsState: State<List<PortForwardItem>> = if (session?.ssh != null) {
-        session!!.ssh.portForwards.collectAsState()
-    } else {
-        remember { mutableStateOf(emptyList()) }
+    val hostId = session?.hostId?.takeIf { it > 0L } ?: 0L
+    val hostUiMap by TerminalSessionPool.hostPortForwardUi.collectAsState()
+    val hostUi = if (hostId > 0L) (hostUiMap[hostId] ?: HostPortForwardUi.Empty) else HostPortForwardUi.Empty
+    val forwards = hostUi.forwards
+    val discovered = hostUi.discovered
+    val ignoredRemote = hostUi.mergedIgnoredKeys
+
+    val operatorSession = remember(sessions, linkedSessionId) {
+        val sid = linkedSessionId ?: return@remember null
+        val cur = sessions.firstOrNull { it.sessionId == sid } ?: return@remember null
+        if (cur.connected) cur else sessions.firstOrNull { it.hostId == cur.hostId && it.connected }
     }
-    val discoveredState: State<List<DiscoveredListen>> = if (session?.ssh != null) {
-        session!!.ssh.discoveredList.collectAsState()
-    } else {
-        remember { mutableStateOf(emptyList()) }
+    val actionSession = operatorSession ?: session?.takeIf { it.connected }
+
+    LaunchedEffect(session?.hostId, linkedSessionId) {
+        val hid = session?.hostId ?: return@LaunchedEffect
+        if (hid > 0L) TerminalSessionPool.refreshHostPortForwardUi(hid)
     }
-    val ignoredState: State<Set<String>> = if (session?.ssh != null) {
-        session!!.ssh.ignoredRemotePorts.collectAsState()
-    } else {
-        remember { mutableStateOf(emptySet()) }
-    }
-    val forwards by forwardsState
-    val discovered by discoveredState
-    val ignoredRemote by ignoredState
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
@@ -98,28 +99,31 @@ fun PortForwardScreen(
     var remotePortText by remember { mutableStateOf("") }
     var dialogError by remember { mutableStateOf<String?>(null) }
 
-    var editTarget by remember { mutableStateOf<PortForwardItem?>(null) }
+    var editTarget by remember { mutableStateOf<MergedForwardUi?>(null) }
     var editLocalPort by remember { mutableStateOf("") }
     var editError by remember { mutableStateOf<String?>(null) }
 
     val activeRemoteKeys = remember(forwards) {
-        forwards.map { "${it.remoteHost.trim().lowercase()}:${it.remotePort}" }.toSet()
+        forwards.map { "${it.item.remoteHost.trim().lowercase()}:${it.item.remotePort}" }.toSet()
     }
     val pendingDiscovered = remember(discovered, activeRemoteKeys, ignoredRemote) {
-        discovered.filter { d ->
+        discovered.filter { md ->
+            val d = md.listen
             if (d.remotePort == 22) return@filter false
             val k = "${d.remoteHost.trim().lowercase()}:${d.remotePort}"
             k !in activeRemoteKeys && k !in ignoredRemote
         }
-            .distinctBy { d -> "${d.remoteHost}:${d.remotePort}" }
-            .sortedWith(compareBy({ it.remotePort }, { it.remoteHost.lowercase() }))
+            .distinctBy { md -> "${md.listen.remoteHost}:${md.listen.remotePort}" }
+            .sortedWith(compareBy({ it.listen.remotePort }, { it.listen.remoteHost.lowercase() }))
     }
+
+    val anySameHostConnected = hostId > 0L && sessions.any { it.hostId == hostId && it.connected }
 
     val statusText = when {
         linkedSessionId == null -> "请先打开一个终端会话"
         session == null -> "当前会话已关闭"
-        session.connecting -> "正在连接终端…"
-        !session.connected -> "终端未连接，端口转发不可用"
+        !anySameHostConnected && session.connecting -> "正在连接终端…"
+        !anySameHostConnected && !session.connected -> "终端未连接，端口转发不可用"
         else -> null
     }
 
@@ -128,7 +132,7 @@ fun PortForwardScreen(
             .fillMaxSize()
             .padding(contentPadding),
         floatingActionButton = {
-            if (session != null && session.connected) {
+            if (actionSession != null) {
                 FloatingActionButton(
                     onClick = {
                         localPortText = ""
@@ -177,11 +181,11 @@ fun PortForwardScreen(
                 item {
                     FilledTonalButton(
                         onClick = {
-                            if (session == null || !session.connected) return@FilledTonalButton
+                            val act = actionSession ?: return@FilledTonalButton
                             scanBusy = true
                             scanHint = null
                             scope.launch {
-                                val r = session.ssh.scanRemoteListenersAndMerge(autoSamePortForward = false)
+                                val r = act.ssh.scanRemoteListenersAndMerge(autoSamePortForward = false)
                                 scanBusy = false
                                 scanHint = if (r.isSuccess) {
                                     "扫描完成，发现 ${r.getOrNull() ?: 0} 条监听"
@@ -190,7 +194,7 @@ fun PortForwardScreen(
                                 }
                             }
                         },
-                        enabled = session != null && session.connected && !scanBusy,
+                        enabled = actionSession != null && !scanBusy,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
@@ -219,7 +223,11 @@ fun PortForwardScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f).padding(end = 8.dp),
                             )
-                            TextButton(onClick = { session?.ssh?.clearAllDismissedRemotePorts() }) {
+                            TextButton(
+                                onClick = {
+                                    if (hostId > 0L) TerminalSessionPool.clearAllDismissedRemotePortsForHost(hostId)
+                                },
+                            ) {
                                 Text("清除忽略")
                             }
                         }
@@ -233,19 +241,21 @@ fun PortForwardScreen(
                         Text("暂无", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    items(forwards, key = { it.id }) { row ->
+                    items(forwards, key = { "${it.owningSessionId}:${it.item.id}" }) { mf ->
+                        val row = mf.item
                         ActiveForwardRow(
                             item = row,
                             onCopyLocal = {
                                 clipboard.setText(AnnotatedString("${row.localHost}:${row.localPort}"))
                             },
                             onEditLocal = {
-                                editTarget = row
+                                editTarget = mf
                                 editLocalPort = row.localPort.toString()
                                 editError = null
                             },
                             onRemove = {
-                                scope.launch { session!!.ssh.stopLocalPortForward(row.id) }
+                                val owner = sessions.firstOrNull { it.sessionId == mf.owningSessionId }
+                                scope.launch { owner?.ssh?.stopLocalPortForward(row.id) }
                             },
                         )
                     }
@@ -262,18 +272,26 @@ fun PortForwardScreen(
                         )
                     }
                 } else {
-                    items(pendingDiscovered, key = { "${it.remoteHost}:${it.remotePort}:${it.source}" }) { d ->
+                    items(pendingDiscovered, key = { "${it.listen.remoteHost}:${it.listen.remotePort}:${it.listen.source}" }) { md ->
+                        val d = md.listen
                         DiscoveredRow(
                             d = d,
                             onSamePortForward = {
+                                val act = actionSession ?: return@DiscoveredRow
+                                val hid = act.hostId
                                 scope.launch {
-                                    val r = session!!.ssh.startSamePortForwardIfAbsent(
+                                    if (TerminalSessionPool.isRemotePortForwardedOnHost(hid, d.remoteHost, d.remotePort)) {
+                                        scanHint = "该远端已在转发中"
+                                        return@launch
+                                    }
+                                    TerminalSessionPool.unignoreRemotePortOnAllSameHostSessions(hid, d.remoteHost, d.remotePort)
+                                    val r = act.ssh.startSamePortForwardIfAbsent(
                                         d.remoteHost,
                                         d.remotePort,
                                         explicitUserAction = true,
                                     )
                                     if (r.isSuccess) {
-                                        session.ssh.removeDiscoveredFromListOnly(d.remoteHost, d.remotePort)
+                                        TerminalSessionPool.removeDiscoveredFromAllSameHostSessions(hid, d.remoteHost, d.remotePort)
                                         scanHint = "已转发 ${d.remoteHost}:${d.remotePort}"
                                     } else {
                                         scanHint = r.exceptionOrNull()?.message ?: "失败"
@@ -288,7 +306,7 @@ fun PortForwardScreen(
         }
     }
 
-    if (showAdd && session != null && session.connected) {
+    if (showAdd && actionSession != null) {
         AlertDialog(
             onDismissRequest = { showAdd = false },
             title = { Text("手动添加转发") },
@@ -336,10 +354,16 @@ fun PortForwardScreen(
                             return@TextButton
                         }
                         val rh = ManualForwardRemoteHost
+                        val act = actionSession!!
+                        val hid = act.hostId
                         scope.launch {
-                            val r = session.ssh.startLocalPortForward(lp, rh, rp)
+                            if (TerminalSessionPool.isRemotePortForwardedOnHost(hid, rh, rp)) {
+                                dialogError = "该远端已在转发中"
+                                return@launch
+                            }
+                            val r = act.ssh.startLocalPortForward(lp, rh, rp)
                             if (r.isSuccess) {
-                                session.ssh.removeDiscoveredFromListOnly(rh, rp)
+                                TerminalSessionPool.removeDiscoveredFromAllSameHostSessions(hid, rh, rp)
                                 showAdd = false
                             } else {
                                 dialogError = r.exceptionOrNull()?.message ?: "启动失败"
@@ -354,15 +378,24 @@ fun PortForwardScreen(
         )
     }
 
-    if (editTarget != null && session != null && session.connected) {
+    if (editTarget != null) {
         val t = editTarget!!
+        val owner = sessions.firstOrNull { it.sessionId == t.owningSessionId }
+        val canEdit = owner != null && owner.connected
         AlertDialog(
             onDismissRequest = { editTarget = null },
             title = { Text("修改本机端口") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!canEdit) {
+                        Text(
+                            "该转发所属会话已断开，请先连接对应标签后再改端口。",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Text(
-                        "远端 ${t.remoteHost}:${t.remotePort} 不变，仅更换手机上的监听端口。",
+                        "远端 ${t.item.remoteHost}:${t.item.remotePort} 不变，仅更换手机上的监听端口。",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedTextField(
@@ -380,13 +413,14 @@ fun PortForwardScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        if (!canEdit) return@TextButton
                         val np = editLocalPort.trim().toIntOrNull()
                         if (np == null || np !in 1..65535) {
                             editError = "请输入 1–65535"
                             return@TextButton
                         }
                         scope.launch {
-                            val r = session.ssh.replaceLocalForward(t.id, np)
+                            val r = owner!!.ssh.replaceLocalForward(t.item.id, np)
                             if (r.isSuccess) {
                                 editTarget = null
                             } else {
@@ -394,6 +428,7 @@ fun PortForwardScreen(
                             }
                         }
                     },
+                    enabled = canEdit,
                 ) { Text("保存") }
             },
             dismissButton = {

@@ -7,6 +7,8 @@ import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.PortForwardHoldService
 import com.dxkj.myshell.data.repo.KeyRepository
+import com.dxkj.myshell.ssh.DiscoveredListen
+import com.dxkj.myshell.ssh.PortForwardItem
 import com.dxkj.myshell.ssh.SshSessionManager
 import jackpal.androidterm.emulatorview.TermSession
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +49,10 @@ object TerminalSessionPool {
     private val _activeSessionId = MutableStateFlow<Long?>(null)
     val activeSessionId: StateFlow<Long?> = _activeSessionId
 
+    private val _hostPortForwardUi = MutableStateFlow<Map<Long, HostPortForwardUi>>(emptyMap())
+    /** 同一 [SessionState.hostId] 下所有已连接会话的转发 / 已发现 / 忽略地址的合并视图（多标签一致）。 */
+    val hostPortForwardUi: StateFlow<Map<Long, HostPortForwardUi>> = _hostPortForwardUi.asStateFlow()
+
     fun init(application: Application) {
         if (::app.isInitialized) return
         app = application
@@ -75,6 +82,75 @@ object TerminalSessionPool {
         scope.launch {
             val n = _sessions.value.sumOf { it.ssh.activeLocalPortForwardCount() }
             PortForwardHoldService.update(app, n)
+        }
+    }
+
+    private fun refreshHostPortForwardUiForSession(sessionId: Long) {
+        val hid = _sessions.value.firstOrNull { it.sessionId == sessionId }?.hostId ?: return
+        rebuildHostPortForwardUi(hid)
+    }
+
+    /** 进入端口页或切换主机时主动拉一次合并结果（避免尚未收到子会话回调时列表为空）。 */
+    fun refreshHostPortForwardUi(hostId: Long) {
+        if (hostId <= 0L) return
+        rebuildHostPortForwardUi(hostId)
+    }
+
+    private fun rebuildHostPortForwardUi(hostId: Long) {
+        if (!::app.isInitialized) return
+        val siblings = _sessions.value
+            .filter { it.hostId == hostId && it.connected }
+            .sortedBy { it.sessionId }
+        val forwards = siblings.flatMap { s ->
+            s.ssh.portForwards.value.map { MergedForwardUi(s.sessionId, it) }
+        }.sortedWith(compareBy({ it.item.remotePort }, { it.item.localPort }, { it.owningSessionId }))
+        val discoveredMerged = linkedMapOf<String, MergedDiscoveredUi>()
+        for (s in siblings) {
+            for (d in s.ssh.discoveredList.value) {
+                val key = "${d.remoteHost.trim().lowercase()}:${d.remotePort}"
+                if (!discoveredMerged.containsKey(key)) {
+                    discoveredMerged[key] = MergedDiscoveredUi(s.sessionId, d)
+                }
+            }
+        }
+        val discovered = discoveredMerged.values.sortedWith(
+            compareBy({ it.listen.remotePort }, { it.listen.remoteHost.lowercase() }),
+        )
+        val mergedIgnored = siblings.flatMap { it.ssh.ignoredRemotePorts.value }.toSet()
+        val anyForHost = _sessions.value.any { it.hostId == hostId }
+        _hostPortForwardUi.update { m ->
+            val next = m.toMutableMap()
+            if (!anyForHost) {
+                next.remove(hostId)
+            } else {
+                next[hostId] = HostPortForwardUi(forwards, discovered, mergedIgnored)
+            }
+            next
+        }
+    }
+
+    /** 同主机任一会话是否已对远端建立本地转发。 */
+    fun isRemotePortForwardedOnHost(hostId: Long, remoteHost: String, remotePort: Int): Boolean =
+        hostId > 0L && _sessions.value.any {
+            it.hostId == hostId && it.connected && it.ssh.isForwardingRemote(remoteHost, remotePort)
+        }
+
+    fun unignoreRemotePortOnAllSameHostSessions(hostId: Long, remoteHost: String, remotePort: Int) {
+        for (s in _sessions.value.filter { it.hostId == hostId }) {
+            s.ssh.clearIgnoredRemote(remoteHost, remotePort)
+        }
+    }
+
+    fun removeDiscoveredFromAllSameHostSessions(hostId: Long, remoteHost: String, remotePort: Int) {
+        for (s in _sessions.value.filter { it.hostId == hostId }) {
+            s.ssh.removeDiscoveredFromListOnly(remoteHost, remotePort)
+        }
+        rebuildHostPortForwardUi(hostId)
+    }
+
+    fun clearAllDismissedRemotePortsForHost(hostId: Long) {
+        for (s in _sessions.value.filter { it.hostId == hostId }) {
+            s.ssh.clearAllDismissedRemotePorts()
         }
     }
 
@@ -194,7 +270,10 @@ object TerminalSessionPool {
 
         val ssh = SshSessionManager(
             keyRepo = keyRepo,
-            onActiveForwardsChanged = { syncPortForwardHoldService() },
+            onPortForwardUiChanged = {
+                syncPortForwardHoldService()
+                refreshHostPortForwardUiForSession(sessionId)
+            },
         )
         val state = SessionState(
             sessionId = sessionId,
@@ -210,6 +289,7 @@ object TerminalSessionPool {
         _sessions.update { it + state }
         _activeSessionId.value = sessionId
         persistOpenHosts()
+        rebuildHostPortForwardUi(hostId)
 
         scope.launch {
             connectInternal(sessionId)
@@ -220,6 +300,7 @@ object TerminalSessionPool {
     fun close(sessionId: Long) {
         terminalAutoThrottle.keys.filter { it.startsWith("$sessionId|") }.forEach { terminalAutoThrottle.remove(it) }
         val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
+        val hid = s.hostId
         scope.launch {
             try {
                 s.ssh.disconnect()
@@ -231,6 +312,7 @@ object TerminalSessionPool {
             _activeSessionId.value = _sessions.value.lastOrNull()?.sessionId
         }
         persistOpenHosts()
+        rebuildHostPortForwardUi(hid)
     }
 
     fun closeAll() {
@@ -245,6 +327,7 @@ object TerminalSessionPool {
 
     fun disconnect(sessionId: Long) {
         val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
+        val hid = s.hostId
         scope.launch {
             try {
                 s.ssh.disconnect()
@@ -256,6 +339,7 @@ object TerminalSessionPool {
                     else it
                 }
             }
+            rebuildHostPortForwardUi(hid)
         }
     }
 
@@ -338,6 +422,7 @@ object TerminalSessionPool {
                     else it
                 }
             }
+            rebuildHostPortForwardUi(s0.hostId)
             return
         }
 
@@ -363,6 +448,7 @@ object TerminalSessionPool {
                     else it
                 }
             }
+            rebuildHostPortForwardUi(host.id)
             return
         }
 
@@ -378,6 +464,7 @@ object TerminalSessionPool {
                     ) else it
                 }
             }
+            rebuildHostPortForwardUi(host.id)
             return
         }
 
@@ -404,12 +491,14 @@ object TerminalSessionPool {
         term.setFinishCallback(object : TermSession.FinishCallback {
             override fun onSessionFinish(s: TermSession) {
                 scope.launch {
+                    val hidFinish = _sessions.value.firstOrNull { it.sessionId == sessionId }?.hostId
                     _sessions.update { list ->
                         list.map {
                             if (it.sessionId == sessionId) it.copy(connected = false, connecting = false, status = "连接已断开", term = null)
                             else it
                         }
                     }
+                    if (hidFinish != null) rebuildHostPortForwardUi(hidFinish)
                     val cur = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return@launch
                     if (cur.autoReconnect) scheduleReconnect(sessionId)
                 }
@@ -432,6 +521,7 @@ object TerminalSessionPool {
             } catch (_: Throwable) {
             }
         }
+        rebuildHostPortForwardUi(host.id)
     }
 
     private suspend fun scheduleReconnect(sessionId: Long) {
@@ -460,6 +550,22 @@ object TerminalSessionPool {
         current.add(0, hostId)
         val next = current.take(max).joinToString(",")
         prefs.edit().putString(key, next).apply()
+    }
+}
+
+/** 合并列表里一条转发所属的标签会话（停止/改端口须调该会话的 [SshSessionManager]）。 */
+data class MergedForwardUi(val owningSessionId: Long, val item: PortForwardItem)
+
+data class MergedDiscoveredUi(val owningSessionId: Long, val listen: DiscoveredListen)
+
+/** 同一主机配置下多 SSH 会话的端口页合并数据。 */
+data class HostPortForwardUi(
+    val forwards: List<MergedForwardUi>,
+    val discovered: List<MergedDiscoveredUi>,
+    val mergedIgnoredKeys: Set<String>,
+) {
+    companion object {
+        val Empty = HostPortForwardUi(emptyList(), emptyList(), emptySet())
     }
 }
 

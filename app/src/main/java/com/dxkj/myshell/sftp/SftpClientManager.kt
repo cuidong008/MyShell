@@ -123,11 +123,17 @@ class SftpClientManager(
             val entries = ls
                 .filter { it.name != "." && it.name != ".." }
                 .map {
+                    val modeOctal = runCatching {
+                        val m = it.attributes.mode
+                        val v = (m as? Number)?.toLong() ?: 0L
+                        String.format("%o", (v and 0xfffL).toInt())
+                    }.getOrDefault("")
                     RemoteEntryUi(
                         name = it.name,
                         path = if (p.endsWith("/")) p + it.name else "$p/${it.name}",
                         isDir = it.attributes.type.name.contains("DIRECTORY", ignoreCase = true),
                         size = it.attributes.size,
+                        modeOctal = modeOctal,
                     )
                 }
                 .sortedWith(compareByDescending<RemoteEntryUi> { it.isDir }.thenBy { it.name })
@@ -174,6 +180,19 @@ class SftpClientManager(
             "重命名成功"
         } catch (t: Throwable) {
             "重命名失败：${t.message ?: t::class.java.simpleName}"
+        }
+    }
+
+    suspend fun chmod(remotePath: String, modeOctal: String): String = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext "未连接"
+        val trimmed = modeOctal.trim()
+        if (trimmed.isEmpty()) return@withContext "权限不能为空"
+        val mode = trimmed.toIntOrNull(8) ?: return@withContext "无效的八进制权限（如 644、0755）"
+        return@withContext try {
+            s.chmod(remotePath, mode)
+            "权限已更新：$remotePath → $trimmed"
+        } catch (t: Throwable) {
+            "chmod 失败：${t.message ?: t::class.java.simpleName}"
         }
     }
 

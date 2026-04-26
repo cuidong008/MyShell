@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,7 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import com.dxkj.myshell.terminal.TerminalSessionPool
 
-private enum class SessionPane { Terminal, Files }
+private enum class SessionPane { Terminal, Files, PortForward }
 
 @Composable
 fun SessionsScreen(
@@ -53,6 +54,7 @@ fun SessionsScreen(
     val activeId by TerminalSessionPool.activeSessionId.collectAsState()
     val activeSession = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
     val filesLinkedHostId = activeSession?.hostId
+    val portForwardSessionId = activeSession?.sessionId
 
     if (initialSessionId != null) {
         LaunchedEffect(initialSessionId) {
@@ -84,10 +86,15 @@ fun SessionsScreen(
                         contentPadding = PaddingValues(0.dp),
                         linkedHostId = filesLinkedHostId,
                     )
+
+                    SessionPane.PortForward -> PortForwardScreen(
+                        contentPadding = PaddingValues(0.dp),
+                        linkedSessionId = portForwardSessionId,
+                    )
                 }
             }
 
-            // 底部：两个紧凑图标按钮（比 TabRow 更窄更美观）
+            // 底部：终端 / 文件 / 端口转发
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -121,6 +128,17 @@ fun SessionsScreen(
                         imageVector = Icons.Outlined.Folder,
                         contentDescription = "文件",
                         tint = if (pane == SessionPane.Files) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { pane = SessionPane.PortForward },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Router,
+                        contentDescription = "端口转发",
+                        tint = if (pane == SessionPane.PortForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 }

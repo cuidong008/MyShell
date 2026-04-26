@@ -2,6 +2,7 @@ package com.dxkj.myshell
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import com.dxkj.myshell.terminal.TerminalSessionPool
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +17,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppRoot()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        TerminalSessionPool.init(application)
+        TerminalSessionPool.onApplicationResume()
     }
 }
 

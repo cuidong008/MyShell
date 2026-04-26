@@ -30,6 +30,13 @@ class MyShellApp : Application() {
                         NotificationManager.IMPORTANCE_LOW,
                     ),
                 )
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        PortForwardHoldService.CHANNEL_ID,
+                        "端口转发保活",
+                        NotificationManager.IMPORTANCE_LOW,
+                    ),
+                )
             } catch (_: Throwable) {
             }
         }

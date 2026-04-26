@@ -35,6 +35,11 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <service
+            android:name=".PortForwardHoldService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 
 </manifest>

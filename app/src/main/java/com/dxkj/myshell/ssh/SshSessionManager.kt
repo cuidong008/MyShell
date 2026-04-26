@@ -6,9 +6,17 @@ import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder
+import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.connection.channel.direct.Session
 import net.schmizz.sshj.transport.TransportException
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -16,16 +24,55 @@ import net.schmizz.sshj.userauth.password.Resource
 import net.schmizz.sshj.userauth.password.PasswordFinder
 import net.schmizz.sshj.userauth.UserAuthException
 import java.net.ConnectException
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.LinkedHashMap
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class ConnectResult(val ok: Boolean, val message: String)
 
+/** 一条本地监听 → 远端 TCP 的 SSH -L 风格转发（与 VS Code「端口」类似）。 */
+data class PortForwardItem(
+    val id: Long,
+    val localHost: String,
+    val localPort: Int,
+    val remoteHost: String,
+    val remotePort: Int,
+)
+
+/** 扫描或终端嗅探到的「远端可转发」地址，尚未必已建立隧道。 */
+data class DiscoveredListen(
+    val remoteHost: String,
+    val remotePort: Int,
+    val source: String,
+)
+
+private data class ForwardRuntime(
+    val item: PortForwardItem,
+    val forwarder: LocalPortForwarder,
+    val serverSocket: ServerSocket,
+)
+
+/** 用户曾建立的转发（本机绑定端口 + 远端），在 SSH 重连或从后台回到前台后用于自动恢复。 */
+private data class ForwardRestoreRule(
+    val remoteHost: String,
+    val remotePort: Int,
+    /** 希望在本机绑定的端口（与当时实际监听一致）；占用时退回随机端口。 */
+    val preferredLocalPort: Int,
+)
+
+/** [onActiveForwardsChanged] 在活跃转发条数变化时调用（用于前台保活等），勿抛异常。 */
 class SshSessionManager(
     private val keyRepo: KeyRepository,
+    private val onActiveForwardsChanged: () -> Unit = {},
 ) {
     private var client: SSHClient? = null
     private var session: Session? = null
@@ -34,6 +81,357 @@ class SshSessionManager(
     private var reader: java.io.InputStream? = null
     private var readerJob: Job? = null
     private var scope: CoroutineScope? = null
+
+    private val forwardSupervisor = SupervisorJob()
+    private val forwardScope = CoroutineScope(forwardSupervisor + Dispatchers.IO)
+    private val forwardIdGen = AtomicLong(1)
+    private val activeForwards = ConcurrentHashMap<Long, ForwardRuntime>()
+    private val restoreRules = ConcurrentHashMap<String, ForwardRestoreRule>()
+    private val _portForwards = MutableStateFlow<List<PortForwardItem>>(emptyList())
+    val portForwards: StateFlow<List<PortForwardItem>> = _portForwards.asStateFlow()
+
+    private val discoveredMap = LinkedHashMap<String, DiscoveredListen>()
+    private val _discoveredList = MutableStateFlow<List<DiscoveredListen>>(emptyList())
+    val discoveredList: StateFlow<List<DiscoveredListen>> = _discoveredList.asStateFlow()
+
+    private val terminalSniffBuf = StringBuilder(16_384)
+    private val terminalSeenKeys = mutableSetOf<String>()
+
+    /** 用户主动停止转发或从「已发现」移除的远端地址；批量/自动转发不再碰，除非用户单条再点「同号转发」。 */
+    private val ignoredRemoteKeys = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val _ignoredRemotePorts = MutableStateFlow<Set<String>>(emptySet())
+    val ignoredRemotePorts: StateFlow<Set<String>> = _ignoredRemotePorts.asStateFlow()
+
+    private fun remotePortKey(host: String, port: Int) = "${host.trim().lowercase()}:$port"
+
+    private fun refreshIgnoredFlow() {
+        _ignoredRemotePorts.value = ignoredRemoteKeys.toSet()
+    }
+
+    fun isRemotePortIgnored(remoteHost: String, remotePort: Int): Boolean =
+        ignoredRemoteKeys.contains(remotePortKey(remoteHost, remotePort))
+
+    /** 同号转发成功后从「已发现」移除（不记入忽略，与手动停止转发不同）。 */
+    @Synchronized
+    fun removeDiscoveredFromListOnly(host: String, port: Int) {
+        val key = remotePortKey(host, port)
+        if (discoveredMap.remove(key) != null) {
+            refreshDiscoveredFlow()
+        }
+    }
+
+    fun clearAllDismissedRemotePorts() {
+        ignoredRemoteKeys.clear()
+        refreshIgnoredFlow()
+    }
+
+    private fun refreshDiscoveredFlow() {
+        _discoveredList.value = discoveredMap.values.reversed()
+    }
+
+    @Synchronized
+    fun mergeDiscoveredPort(host: String, port: Int, source: String) {
+        val h = host.trim().ifEmpty { return }
+        if (port !in 1..65535) return
+        if (port == SSH_CONTROL_PORT) return
+        val key = "${h.lowercase()}:$port"
+        if (ignoredRemoteKeys.contains(key)) return
+        discoveredMap.remove(key)
+        discoveredMap[key] = DiscoveredListen(h, port, source)
+        while (discoveredMap.size > 80) {
+            val first = discoveredMap.keys.first()
+            discoveredMap.remove(first)
+        }
+        refreshDiscoveredFlow()
+    }
+
+    /**
+     * 将终端回显喂给嗅探器；返回**本轮新出现**的远端地址（用于自动同号转发去重）。
+     */
+    @Synchronized
+    fun feedTerminalSniffForPorts(bytes: ByteArray, off: Int, len: Int): List<Pair<String, Int>> {
+        if (len <= 0) return emptyList()
+        val chunk = String(bytes, off, len, Charsets.UTF_8)
+        terminalSniffBuf.append(chunk)
+        if (terminalSniffBuf.length > 20_000) {
+            terminalSniffBuf.delete(0, terminalSniffBuf.length - 10_000)
+        }
+        val text = terminalSniffBuf.toString()
+        val extracted = RemotePortDiscovery.extractFromTerminalChunk(text)
+        val news = mutableListOf<Pair<String, Int>>()
+        for ((h, p) in extracted) {
+            if (p == SSH_CONTROL_PORT) continue
+            val k = "${h.lowercase()}:$p"
+            if (ignoredRemoteKeys.contains(k)) continue
+            mergeDiscoveredPort(h, p, "终端")
+            if (terminalSeenKeys.add(k)) {
+                news.add(h to p)
+            }
+        }
+        return news
+    }
+
+    @Synchronized
+    private fun clearPortDiscoveryState() {
+        discoveredMap.clear()
+        _discoveredList.value = emptyList()
+        terminalSeenKeys.clear()
+        terminalSniffBuf.clear()
+        ignoredRemoteKeys.clear()
+        _ignoredRemotePorts.value = emptySet()
+    }
+
+    fun isForwardingRemote(remoteHost: String, remotePort: Int): Boolean {
+        val h = remoteHost.trim().lowercase()
+        return activeForwards.values.any {
+            it.item.remotePort == remotePort && it.item.remoteHost.trim().lowercase() == h
+        }
+    }
+
+    /**
+     * 优先本机端口与远端端口一致；若占用则改为系统分配本地端口。
+     * @param explicitUserAction 为 true 时（单条「同号转发」）会先取消「忽略」；为 false 时（批量/自动）若该远端已被用户忽略则直接失败。
+     */
+    suspend fun startSamePortForwardIfAbsent(
+        remoteHost: String,
+        remotePort: Int,
+        explicitUserAction: Boolean = true,
+    ): Result<PortForwardItem> {
+        if (remotePort == SSH_CONTROL_PORT) {
+            return Result.failure(IllegalArgumentException("22 为 SSH 端口，无需转发"))
+        }
+        val key = remotePortKey(remoteHost, remotePort)
+        if (!explicitUserAction && ignoredRemoteKeys.contains(key)) {
+            return Result.failure(IllegalStateException("已忽略"))
+        }
+        if (explicitUserAction) {
+            ignoredRemoteKeys.remove(key)
+            refreshIgnoredFlow()
+        }
+        if (isForwardingRemote(remoteHost, remotePort)) {
+            return Result.failure(IllegalStateException("已在转发"))
+        }
+        var r = startLocalPortForward(remotePort, remoteHost, remotePort)
+        if (r.isFailure) {
+            r = startLocalPortForward(0, remoteHost, remotePort)
+        }
+        return r
+    }
+
+    /**
+     * 在远端执行 `ss`/`netstat` 合并到发现列表；若 [autoSamePortForward] 则对合适端口尝试「本地同端口 → 远端」转发。
+     */
+    suspend fun scanRemoteListenersAndMerge(autoSamePortForward: Boolean): Result<Int> =
+        withContext(Dispatchers.IO) {
+            val c = client ?: return@withContext Result.failure(IllegalStateException("未连接"))
+            val r = execCaptureUnscoped(
+                c,
+                "bash -lc 'export LANG=C LC_ALL=C; ss -Hltn 2>/dev/null || netstat -lnt 2>/dev/null || true'",
+            )
+            if (r.isFailure) {
+                return@withContext Result.failure(r.exceptionOrNull() ?: Exception("扫描失败"))
+            }
+            val text = r.getOrNull() ?: ""
+            var list = RemotePortDiscovery.parseSsListenTcp(text)
+            if (list.isEmpty()) {
+                list = RemotePortDiscovery.parseNetstatListenTcp(text)
+            }
+            for ((h, p) in list) {
+                mergeDiscoveredPort(h, p, "远端扫描")
+            }
+            if (autoSamePortForward) {
+                for ((h, p) in list) {
+                    if (!RemotePortDiscovery.allowAutoForwardFromRemoteScan(p)) continue
+                    startSamePortForwardIfAbsent(h, p, explicitUserAction = false)
+                }
+            }
+            Result.success(list.size)
+        }
+
+    private suspend fun execCaptureUnscoped(c: SSHClient, command: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            val sess = c.startSession()
+            try {
+                val cmd = sess.exec(command)
+                cmd.join(12, TimeUnit.SECONDS)
+                val out = cmd.inputStream.use { ins -> ins.readBytes().toString(Charsets.UTF_8) }
+                val err = cmd.errorStream.use { es -> es.readBytes().toString(Charsets.UTF_8) }
+                val merged = listOf(out, err).filter { it.isNotBlank() }.joinToString("\n")
+                Result.success(merged)
+            } catch (t: Throwable) {
+                Result.failure(t)
+            } finally {
+                try {
+                    sess.close()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
+    private fun refreshPortForwardFlow() {
+        _portForwards.value = activeForwards.values.map { it.item }.sortedWith(compareBy({ it.localPort }, { it.id }))
+        notifyPortForwardListeners()
+    }
+
+    private fun notifyPortForwardListeners() {
+        try {
+            onActiveForwardsChanged()
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun activeLocalPortForwardCount(): Int = activeForwards.size
+
+    private fun rememberRestoreRule(remoteHost: String, remotePort: Int, boundLocalPort: Int) {
+        val h = remoteHost.trim()
+        if (h.isEmpty() || remotePort !in 1..65535 || remotePort == SSH_CONTROL_PORT || boundLocalPort !in 1..65535) return
+        val key = remotePortKey(h, remotePort)
+        if (ignoredRemoteKeys.contains(key)) return
+        restoreRules[key] = ForwardRestoreRule(h, remotePort, boundLocalPort)
+    }
+
+    private fun forgetRestoreRule(remoteHost: String, remotePort: Int) {
+        restoreRules.remove(remotePortKey(remoteHost, remotePort))
+    }
+
+    /**
+     * 在 SSH 已连接的前提下，按保存的规则重建本地转发（断线重连、从后台返回后调用）。
+     */
+    suspend fun restorePortForwardsAfterReconnect() {
+        if (client == null) return
+        val snapshot = restoreRules.values.toList()
+        for (rule in snapshot) {
+            if (rule.remotePort == SSH_CONTROL_PORT) continue
+            if (isRemotePortIgnored(rule.remoteHost, rule.remotePort)) continue
+            if (isForwardingRemote(rule.remoteHost, rule.remotePort)) continue
+            var r = startLocalPortForward(rule.preferredLocalPort, rule.remoteHost, rule.remotePort)
+            if (r.isFailure) {
+                r = startLocalPortForward(0, rule.remoteHost, rule.remotePort)
+            }
+        }
+    }
+
+    /**
+     * @param localPort 本机监听端口；0 表示由系统分配临时端口
+     */
+    suspend fun startLocalPortForward(
+        localPort: Int,
+        remoteHost: String,
+        remotePort: Int,
+    ): Result<PortForwardItem> = withContext(Dispatchers.IO) {
+        val c = client ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        val host = remoteHost.trim().ifEmpty { return@withContext Result.failure(IllegalArgumentException("远端主机不能为空")) }
+        ignoredRemoteKeys.remove(remotePortKey(host, remotePort))
+        refreshIgnoredFlow()
+        if (remotePort !in 1..65535) {
+            return@withContext Result.failure(IllegalArgumentException("远端端口无效"))
+        }
+        if (remotePort == SSH_CONTROL_PORT) {
+            return@withContext Result.failure(IllegalArgumentException("22 为 SSH 端口，无需转发"))
+        }
+        if (localPort !in 0..65535) {
+            return@withContext Result.failure(IllegalArgumentException("本地端口无效"))
+        }
+        val bindAddr = InetAddress.getByName("127.0.0.1")
+        val ss = ServerSocket()
+        try {
+            ss.reuseAddress = true
+            if (localPort == 0) {
+                ss.bind(InetSocketAddress(bindAddr, 0))
+            } else {
+                ss.bind(InetSocketAddress(bindAddr, localPort))
+            }
+        } catch (t: Throwable) {
+            try {
+                ss.close()
+            } catch (_: Throwable) {
+            }
+            return@withContext Result.failure(t)
+        }
+        val boundPort = ss.localPort
+        val localHostStr = "127.0.0.1"
+        val params = Parameters(localHostStr, boundPort, host, remotePort)
+        val forwarder = try {
+            c.newLocalPortForwarder(params, ss)
+        } catch (t: Throwable) {
+            try {
+                ss.close()
+            } catch (_: Throwable) {
+            }
+            return@withContext Result.failure(t)
+        }
+        val id = forwardIdGen.getAndIncrement()
+        val item = PortForwardItem(id, localHostStr, boundPort, host, remotePort)
+        activeForwards[id] = ForwardRuntime(item, forwarder, ss)
+        rememberRestoreRule(host, remotePort, boundPort)
+        refreshPortForwardFlow()
+        forwardScope.launch {
+            try {
+                forwarder.listen()
+            } catch (_: SocketException) {
+            } catch (_: Throwable) {
+            } finally {
+                activeForwards.remove(id)
+                refreshPortForwardFlow()
+                try {
+                    ss.close()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        Result.success(item)
+    }
+
+    suspend fun stopLocalPortForward(id: Long, markRemoteDismissed: Boolean = true) = withContext(Dispatchers.IO) {
+        val entry = activeForwards.remove(id) ?: return@withContext
+        try {
+            entry.forwarder.close()
+        } catch (_: Throwable) {
+        }
+        try {
+            entry.serverSocket.close()
+        } catch (_: Throwable) {
+        }
+        if (markRemoteDismissed) {
+            val rk = remotePortKey(entry.item.remoteHost, entry.item.remotePort)
+            ignoredRemoteKeys.add(rk)
+            forgetRestoreRule(entry.item.remoteHost, entry.item.remotePort)
+            synchronized(this@SshSessionManager) {
+                discoveredMap.remove(rk)
+                refreshDiscoveredFlow()
+            }
+            refreshIgnoredFlow()
+        }
+        refreshPortForwardFlow()
+    }
+
+    /** 停止旧转发并以新的本机端口重新监听（远端 host:port 不变）。 */
+    suspend fun replaceLocalForward(itemId: Long, newLocalPort: Int): Result<PortForwardItem> {
+        val entry = activeForwards[itemId] ?: return Result.failure(IllegalStateException("记录不存在"))
+        val remoteHost = entry.item.remoteHost
+        val remotePort = entry.item.remotePort
+        stopLocalPortForward(itemId, markRemoteDismissed = false)
+        return startLocalPortForward(newLocalPort, remoteHost, remotePort)
+    }
+
+    private suspend fun stopAllLocalPortForwardsLocked() = withContext(Dispatchers.IO) {
+        val snapshot = activeForwards.toMap()
+        activeForwards.clear()
+        for ((_, e) in snapshot) {
+            try {
+                e.forwarder.close()
+            } catch (_: Throwable) {
+                // listen 尚未进入时 runningThread 可能为 null，会 NPE；随后关闭 socket 即可
+            }
+            try {
+                e.serverSocket.close()
+            } catch (_: Throwable) {
+            }
+        }
+        forwardSupervisor.cancelChildren()
+        _portForwards.value = emptyList()
+        notifyPortForwardListeners()
+    }
 
     suspend fun connect(host: HostEntity): ConnectResult {
         disconnect()
@@ -202,6 +600,8 @@ class SshSessionManager(
     }
 
     suspend fun disconnect() {
+        stopAllLocalPortForwardsLocked()
+        clearPortDiscoveryState()
         try {
             readerJob?.cancel()
         } catch (_: Throwable) {
@@ -239,6 +639,10 @@ class SshSessionManager(
         }
         writer = null
         reader = null
+    }
+
+    companion object {
+        private const val SSH_CONTROL_PORT = 22
     }
 }
 

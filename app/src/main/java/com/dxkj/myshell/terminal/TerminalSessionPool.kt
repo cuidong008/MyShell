@@ -2,8 +2,10 @@ package com.dxkj.myshell.terminal
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
+import com.dxkj.myshell.PortForwardHoldService
 import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.ssh.SshSessionManager
 import jackpal.androidterm.emulatorview.TermSession
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -34,6 +37,9 @@ object TerminalSessionPool {
     private lateinit var hostRepo: HostRepository
     private lateinit var keyRepo: KeyRepository
 
+    /** 终端自动同号转发：按「会话|host:port」节流，避免日志刷屏触发风暴 */
+    private val terminalAutoThrottle = ConcurrentHashMap<String, Long>()
+
     private val _sessions = MutableStateFlow<List<SessionState>>(emptyList())
     val sessions: StateFlow<List<SessionState>> = _sessions
 
@@ -49,8 +55,69 @@ object TerminalSessionPool {
         keyRepo = KeyRepository(db.keyDao())
     }
 
+    /** 从后台回到前台时尝试恢复已断的本地监听，并刷新前台保活通知。 */
+    fun onApplicationResume() {
+        if (!::app.isInitialized) return
+        syncPortForwardHoldService()
+        scope.launch(Dispatchers.IO) {
+            for (s in _sessions.value) {
+                if (!s.connected) continue
+                try {
+                    s.ssh.restorePortForwardsAfterReconnect()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }
+
+    private fun syncPortForwardHoldService() {
+        if (!::app.isInitialized) return
+        scope.launch {
+            val n = _sessions.value.sumOf { it.ssh.activeLocalPortForwardCount() }
+            PortForwardHoldService.update(app, n)
+        }
+    }
+
     fun setActive(sessionId: Long) {
         _activeSessionId.value = sessionId
+    }
+
+    fun portAutoFromTerminal(): Boolean = if (::prefs.isInitialized) prefs.getBoolean("port_auto_terminal", true) else true
+
+    fun portAutoFromScan(): Boolean = if (::prefs.isInitialized) prefs.getBoolean("port_auto_scan", true) else true
+
+    fun setPortAutoFromTerminal(v: Boolean) {
+        if (::prefs.isInitialized) prefs.edit().putBoolean("port_auto_terminal", v).apply()
+    }
+
+    fun setPortAutoFromScan(v: Boolean) {
+        if (::prefs.isInitialized) prefs.edit().putBoolean("port_auto_scan", v).apply()
+    }
+
+    private fun terminalSniffHandler(sessionId: Long, bytes: ByteArray, off: Int, len: Int) {
+        val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
+        if (!s.connected) return
+        val newPorts = try {
+            s.ssh.feedTerminalSniffForPorts(bytes, off, len)
+        } catch (_: Throwable) {
+            return
+        }
+        if (!portAutoFromTerminal()) return
+        for ((h, p) in newPorts) {
+            if (p == 22) continue
+            val key = "$sessionId|${h.lowercase()}:$p"
+            val now = SystemClock.elapsedRealtime()
+            if (now - terminalAutoThrottle.getOrDefault(key, 0L) < 2500L) continue
+            terminalAutoThrottle[key] = now
+            scope.launch(Dispatchers.IO) {
+                val cur = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return@launch
+                if (!cur.connected) return@launch
+                try {
+                    cur.ssh.startSamePortForwardIfAbsent(h, p, explicitUserAction = false)
+                } catch (_: Throwable) {
+                }
+            }
+        }
     }
 
     fun renameSession(sessionId: Long, newTitle: String) {
@@ -125,7 +192,10 @@ object TerminalSessionPool {
         val sessionId = nextId.getAndIncrement()
         val autoReconnect = prefs.getBoolean("autoReconnect_$hostId", true)
 
-        val ssh = SshSessionManager(keyRepo = keyRepo)
+        val ssh = SshSessionManager(
+            keyRepo = keyRepo,
+            onActiveForwardsChanged = { syncPortForwardHoldService() },
+        )
         val state = SessionState(
             sessionId = sessionId,
             hostId = hostId,
@@ -148,6 +218,7 @@ object TerminalSessionPool {
     }
 
     fun close(sessionId: Long) {
+        terminalAutoThrottle.keys.filter { it.startsWith("$sessionId|") }.forEach { terminalAutoThrottle.remove(it) }
         val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
         scope.launch {
             try {
@@ -251,6 +322,7 @@ object TerminalSessionPool {
 
     private suspend fun connectInternal(sessionId: Long) {
         val s0 = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
+        terminalAutoThrottle.keys.filter { it.startsWith("$sessionId|") }.forEach { terminalAutoThrottle.remove(it) }
         _sessions.update { list ->
             list.map {
                 if (it.sessionId == sessionId) it.copy(connecting = true, status = "连接中…", term = null)
@@ -309,7 +381,10 @@ object TerminalSessionPool {
             return
         }
 
-        val (out, input) = streams.getOrThrow()
+        val (out, rawIn) = streams.getOrThrow()
+        val input = SniffingInputStream(rawIn) { b, o, l ->
+            terminalSniffHandler(sessionId, b, o, l)
+        }
         val term = TermSession()
         term.setTitle("SSH")
         term.setTermIn(input)
@@ -348,6 +423,13 @@ object TerminalSessionPool {
             list.map {
                 if (it.sessionId == sessionId) it.copy(connecting = false, connected = true, status = "已连接", term = term)
                 else it
+            }
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                s0.ssh.restorePortForwardsAfterReconnect()
+            } catch (_: Throwable) {
             }
         }
     }

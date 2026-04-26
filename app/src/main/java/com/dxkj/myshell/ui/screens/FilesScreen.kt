@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,20 +40,14 @@ import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.NavigateNext
 import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -133,7 +129,6 @@ fun FilesScreen(
     var pendingEdit by remember { mutableStateOf<RemoteEntryUi?>(null) }
     var editText by remember { mutableStateOf("") }
     var editLoading by remember { mutableStateOf(false) }
-    var showHostMenu by remember { mutableStateOf(false) }
     var showHiddenFiles by remember { mutableStateOf(false) }
     var showNewFileDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
@@ -155,65 +150,13 @@ fun FilesScreen(
         }
     }
 
-    val selectedHost = hosts.firstOrNull { it.id == selectedHostId }
     val displayEntries = remember(ui.entries, showHiddenFiles) {
         ui.entries
             .filter { showHiddenFiles || !it.name.startsWith(".") }
             .sortedWith(compareByDescending<RemoteEntryUi> { it.isDir }.thenBy { it.name.lowercase() })
     }
 
-    val crumbs = remember(ui.currentPath) { pathBreadcrumbs(ui.currentPath) }
-
     Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
-        // 顶栏：仅主机与断开（iPad / ShellBean 式：列表占主体）
-        Surface(tonalElevation = 1.dp, shadowElevation = 0.dp) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Box {
-                    FilledIconButton(onClick = { showHostMenu = true }, modifier = Modifier.size(44.dp)) {
-                        Icon(imageVector = Icons.Outlined.Folder, contentDescription = "选择主机")
-                    }
-                    DropdownMenu(expanded = showHostMenu, onDismissRequest = { showHostMenu = false }) {
-                        hosts.forEach { h ->
-                            DropdownMenuItem(
-                                text = { Text(h.name) },
-                                onClick = {
-                                    selectedHostId = h.id
-                                    showHostMenu = false
-                                    vm.connect(h.id)
-                                },
-                            )
-                        }
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = selectedHost?.name ?: "选择主机",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    if (ui.connected) {
-                        Text(
-                            text = ui.currentPath,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                IconButton(
-                    onClick = { if (ui.connected) vm.disconnect() },
-                    enabled = ui.connected,
-                ) {
-                    Icon(imageVector = Icons.Outlined.Delete, contentDescription = "断开")
-                }
-            }
-        }
-
         if (ui.status != null) {
             Text(
                 text = ui.status ?: "",
@@ -238,7 +181,7 @@ fun FilesScreen(
         if (!ui.connected) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Text(
-                    if (ui.connecting) "连接中…" else "未连接，请在左上角选择主机",
+                    if (ui.connecting) "连接中…" else "未连接",
                     modifier = Modifier.align(Alignment.Center),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -366,71 +309,52 @@ fun FilesScreen(
             }
         }
 
-        // 底部 Dock：操作图标 + 路径面包屑（参考 ShellBean iPad）
+        // 底部一行：操作图标 + 可点击路径（如 /home/cuid/xx 中点 cuid → /home/cuid）
         if (ui.connected) {
             Surface(
                 tonalElevation = 3.dp,
                 shadowElevation = 2.dp,
                 modifier = Modifier.navigationBarsPadding(),
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp, horizontal = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { showNewFileDialog = true }, enabled = !ui.loading) {
-                            Icon(imageVector = Icons.Outlined.NoteAdd, contentDescription = "新建文件")
-                        }
-                        IconButton(onClick = { showMkdir = true }, enabled = !ui.loading) {
-                            Icon(imageVector = Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹")
-                        }
-                        IconButton(onClick = { pickUpload.launch(arrayOf("*/*")) }, enabled = !ui.loading) {
-                            Icon(imageVector = Icons.Outlined.CloudUpload, contentDescription = "上传文件")
-                        }
-                        IconButton(onClick = { vm.list(ui.currentPath) }, enabled = !ui.loading) {
-                            Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "刷新目录")
-                        }
-                        IconButton(onClick = { showHiddenFiles = !showHiddenFiles }) {
-                            Icon(
-                                imageVector = if (showHiddenFiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                                contentDescription = "显示隐藏文件",
-                            )
-                        }
+                    IconButton(onClick = { showNewFileDialog = true }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
+                        Icon(imageVector = Icons.Outlined.NoteAdd, contentDescription = "新建文件")
                     }
-                    HorizontalDivider()
-                    Row(
+                    IconButton(onClick = { showMkdir = true }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
+                        Icon(imageVector = Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹")
+                    }
+                    IconButton(onClick = { pickUpload.launch(arrayOf("*/*")) }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
+                        Icon(imageVector = Icons.Outlined.CloudUpload, contentDescription = "上传文件")
+                    }
+                    IconButton(onClick = { vm.list(ui.currentPath) }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
+                        Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "刷新目录")
+                    }
+                    IconButton(onClick = { showHiddenFiles = !showHiddenFiles }, modifier = Modifier.size(44.dp)) {
+                        Icon(
+                            imageVector = if (showHiddenFiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            contentDescription = "显示隐藏文件",
+                        )
+                    }
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        crumbs.forEachIndexed { index, (label, fullPath) ->
-                            if (index > 0) {
-                                Icon(
-                                    imageVector = Icons.Outlined.NavigateNext,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            IconButton(
-                                onClick = { vm.list(fullPath) },
-                                enabled = !ui.loading,
-                                modifier = Modifier.size(44.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (index == 0) Icons.Outlined.Home else Icons.Outlined.Folder,
-                                    contentDescription = label,
-                                )
-                            }
-                        }
-                    }
+                            .padding(horizontal = 6.dp)
+                            .width(1.dp)
+                            .height(28.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant),
+                    )
+                    ClickableRemotePath(
+                        currentPath = ui.currentPath,
+                        enabled = !ui.loading,
+                        onNavigate = { vm.list(it) },
+                        modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                    )
                 }
             }
         }
@@ -598,20 +522,56 @@ fun FilesScreen(
     }
 }
 
-/** 面包屑：根目录 + 每一级路径，点击可 `list(fullPath)` */
-private fun pathBreadcrumbs(fullPath: String): List<Pair<String, String>> {
-    val p = fullPath.trim().ifBlank { return listOf("根" to "/") }
-    if (p == "/") return listOf("根" to "/")
-    val norm = p.removeSuffix("/")
-    val parts = norm.split('/').filter { it.isNotEmpty() }
-    val out = mutableListOf<Pair<String, String>>()
-    out.add("根" to "/")
-    var acc = ""
-    for (part in parts) {
-        acc = if (acc.isEmpty()) "/$part" else "$acc/$part"
-        out.add(part to acc)
+/** 显示为 `/a/b/c` 样式：`/` 与各段目录名可点击，点击某段进入该段对应路径 */
+@Composable
+private fun ClickableRemotePath(
+    currentPath: String,
+    enabled: Boolean,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val norm = currentPath.trim().removeSuffix("/").ifBlank { "/" }
+    val parts = if (norm == "/" || norm.isEmpty()) {
+        emptyList()
+    } else {
+        norm.removePrefix("/").split('/').filter { it.isNotEmpty() }
     }
-    return out
+    val primary = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val style = MaterialTheme.typography.bodyMedium
+
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (parts.isEmpty()) {
+            Text(
+                text = "/",
+                style = style,
+                color = primary,
+                modifier = Modifier.clickable(enabled = enabled) { onNavigate("/") },
+            )
+            return@Row
+        }
+        Text(
+            text = "/",
+            style = style,
+            color = primary,
+            modifier = Modifier.clickable(enabled = enabled) { onNavigate("/") },
+        )
+        var acc = ""
+        parts.forEachIndexed { i, part ->
+            if (i > 0) {
+                Text(text = "/", style = style, color = muted)
+            }
+            acc = if (i == 0) "/$part" else "$acc/$part"
+            Text(
+                text = part,
+                style = style,
+                color = primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(enabled = enabled) { onNavigate(acc) },
+            )
+        }
+    }
 }
 
 private fun Modifier.simpleVerticalScrollbar(

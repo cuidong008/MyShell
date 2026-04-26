@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -150,6 +151,7 @@ fun AppNav() {
             }
         },
     ) { innerPadding ->
+        val contentPaddingForPane = if (useRail) PaddingValues(0.dp) else innerPadding
         Box(modifier = Modifier.fillMaxSize()) {
             // 关键修复：当用户快速切换导航导致终端 UI 被销毁时，库内部会出现 TermKeyListener 为 null 的 NPE。
             // 这里常驻一个“不可见的 EmulatorView”，确保每个活跃 TermSession 始终有 KeyListener 绑定，避免崩溃。
@@ -267,7 +269,7 @@ fun AppNav() {
                 ) {
                 composable(BottomTab.Servers.route) {
                     HostsScreen(
-                        contentPadding = innerPadding,
+                        contentPadding = contentPaddingForPane,
                         onAddHost = { navController.navigate("host_edit?hostId=-1") },
                         onEditHost = { id -> navController.navigate("host_edit?hostId=$id") },
                         onOpenSession = { hostId ->
@@ -281,10 +283,10 @@ fun AppNav() {
                     arguments = listOf(navArgument("sid") { type = NavType.LongType; defaultValue = -1L }),
                 ) { entry ->
                     val sid = entry.arguments?.getLong("sid") ?: -1L
-                    SessionsScreen(contentPadding = innerPadding, initialSessionId = sid.takeIf { it > 0 })
+                    SessionsScreen(contentPadding = contentPaddingForPane, initialSessionId = sid.takeIf { it > 0 })
                 }
-                composable(BottomTab.Overview.route) { OverviewScreen(contentPadding = innerPadding) }
-                composable(BottomTab.Keys.route) { KeysScreen(contentPadding = innerPadding) }
+                composable(BottomTab.Overview.route) { OverviewScreen(contentPadding = contentPaddingForPane) }
+                composable(BottomTab.Keys.route) { KeysScreen(contentPadding = contentPaddingForPane) }
 
             composable(
                 route = "host_edit?hostId={hostId}",
@@ -292,7 +294,7 @@ fun AppNav() {
             ) { entry ->
                 val hostId = entry.arguments?.getLong("hostId") ?: -1L
                 HostEditScreen(
-                    contentPadding = innerPadding,
+                    contentPadding = contentPaddingForPane,
                     hostId = hostId.takeIf { it > 0 },
                     onDone = { navController.popBackStack() },
                 )

@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +51,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -57,7 +58,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,10 +67,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -195,17 +198,17 @@ fun FilesScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 6.dp)
                     .simpleVerticalScrollbar(listState),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(displayEntries, key = { it.path }) { e ->
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 6.dp, horizontal = 8.dp),
+                                .padding(vertical = 4.dp, horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Row(
@@ -215,15 +218,16 @@ fun FilesScreen(
                                         if (e.isDir) vm.list(e.path)
                                     },
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Icon(
                                     imageVector = if (e.isDir) Icons.Outlined.Folder else Icons.Outlined.Description,
                                     contentDescription = null,
-                                    modifier = Modifier.size(26.dp),
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 )
                                 Column(modifier = Modifier.weight(1f, fill = false)) {
-                                    Text(e.name, style = MaterialTheme.typography.titleSmall)
+                                    Text(e.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
                                         buildString {
                                             append(if (e.isDir) "目录" else "文件")
@@ -231,16 +235,16 @@ fun FilesScreen(
                                             if (!e.isDir) append(" · ").append("${e.size} B")
                                         },
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MaterialTheme.typography.labelSmall,
                                     )
                                 }
                             }
                             Row(
                                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
-                                IconButton(
+                                CompactIconTap(
                                     onClick = {
                                         if (e.isDir) vm.list(e.path) else {
                                             pendingEdit = e
@@ -251,56 +255,65 @@ fun FilesScreen(
                                             }
                                         }
                                     },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = if (e.isDir) Icons.Outlined.FolderOpen else Icons.Outlined.Edit,
-                                        contentDescription = if (e.isDir) "打开" else "编辑",
-                                    )
-                                }
-                                IconButton(
+                                    enabled = true,
+                                    icon = if (e.isDir) Icons.Outlined.FolderOpen else Icons.Outlined.Edit,
+                                    contentDescription = if (e.isDir) "打开" else "编辑",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
+                                CompactIconTap(
                                     onClick = {
                                         clipboard.setText(AnnotatedString(e.path))
                                         vm.setStatus("已复制路径", ok = true)
                                     },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = "复制地址")
-                                }
-                                IconButton(
+                                    enabled = true,
+                                    icon = Icons.Outlined.ContentCopy,
+                                    contentDescription = "复制地址",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
+                                CompactIconTap(
                                     onClick = {
                                         pendingRename = e
                                         renameTo = e.name
                                     },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.DriveFileRenameOutline, contentDescription = "重命名")
-                                }
-                                IconButton(
+                                    enabled = true,
+                                    icon = Icons.Outlined.DriveFileRenameOutline,
+                                    contentDescription = "重命名",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
+                                CompactIconTap(
                                     onClick = {
-                                        val id = selectedHostId ?: return@IconButton
-                                        vm.enqueueDownload(hostId = id, remotePath = e.path, filename = e.name)
+                                        selectedHostId?.let { id ->
+                                            vm.enqueueDownload(hostId = id, remotePath = e.path, filename = e.name)
+                                        }
                                     },
                                     enabled = !e.isDir && selectedHostId != null,
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.CloudDownload, contentDescription = "下载")
-                                }
-                                IconButton(
+                                    icon = Icons.Outlined.CloudDownload,
+                                    contentDescription = "下载",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
+                                CompactIconTap(
                                     onClick = {
                                         pendingChmod = e
                                         chmodInput = e.modeOctal.ifBlank { "644" }
                                     },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.Info, contentDescription = "文件权限")
-                                }
-                                IconButton(
+                                    enabled = true,
+                                    icon = Icons.Outlined.Info,
+                                    contentDescription = "文件权限",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
+                                CompactIconTap(
                                     onClick = { pendingDelete = e },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.Delete, contentDescription = "删除")
-                                }
+                                    enabled = true,
+                                    icon = Icons.Outlined.Delete,
+                                    contentDescription = "删除",
+                                    boxSize = 28.dp,
+                                    iconSize = 16.dp,
+                                )
                             }
                         }
                     }
@@ -309,51 +322,48 @@ fun FilesScreen(
             }
         }
 
-        // 底部一行：操作图标 + 路径按钮（/ > home > cuid，点哪段进哪段）
+        // 底部一行：紧凑图标 + 路径（/home/cuid 样式，段与段更贴）
         if (ui.connected) {
             Surface(
-                tonalElevation = 3.dp,
-                shadowElevation = 2.dp,
+                tonalElevation = 2.dp,
+                shadowElevation = 1.dp,
                 modifier = Modifier.navigationBarsPadding(),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                        .padding(vertical = 3.dp, horizontal = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
-                    IconButton(onClick = { showNewFileDialog = true }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
-                        Icon(imageVector = Icons.Outlined.NoteAdd, contentDescription = "新建文件")
-                    }
-                    IconButton(onClick = { showMkdir = true }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
-                        Icon(imageVector = Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹")
-                    }
-                    IconButton(onClick = { pickUpload.launch(arrayOf("*/*")) }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
-                        Icon(imageVector = Icons.Outlined.CloudUpload, contentDescription = "上传文件")
-                    }
-                    IconButton(onClick = { vm.list(ui.currentPath) }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
-                        Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "刷新目录")
-                    }
-                    IconButton(onClick = { vm.setShowDotfiles(!ui.showDotfiles) }, modifier = Modifier.size(44.dp)) {
-                        Icon(
-                            imageVector = if (ui.showDotfiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                            contentDescription = "显示隐藏文件",
-                        )
-                    }
+                    val dBox = 28.dp
+                    val dIcon = 17.dp
+                    CompactIconTap(onClick = { showNewFileDialog = true }, enabled = !ui.loading, icon = Icons.Outlined.NoteAdd, contentDescription = "新建文件", boxSize = dBox, iconSize = dIcon)
+                    CompactIconTap(onClick = { showMkdir = true }, enabled = !ui.loading, icon = Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹", boxSize = dBox, iconSize = dIcon)
+                    CompactIconTap(onClick = { pickUpload.launch(arrayOf("*/*")) }, enabled = !ui.loading, icon = Icons.Outlined.CloudUpload, contentDescription = "上传文件", boxSize = dBox, iconSize = dIcon)
+                    CompactIconTap(onClick = { vm.list(ui.currentPath) }, enabled = !ui.loading, icon = Icons.Outlined.Refresh, contentDescription = "刷新目录", boxSize = dBox, iconSize = dIcon)
+                    CompactIconTap(
+                        onClick = { vm.setShowDotfiles(!ui.showDotfiles) },
+                        enabled = true,
+                        icon = if (ui.showDotfiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        contentDescription = "显示隐藏文件",
+                        boxSize = dBox,
+                        iconSize = dIcon,
+                    )
                     Box(
                         modifier = Modifier
-                            .padding(horizontal = 6.dp)
+                            .padding(horizontal = 4.dp)
                             .width(1.dp)
-                            .height(28.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant),
+                            .height(18.dp)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                     )
                     ClickableRemotePath(
                         currentPath = ui.currentPath,
                         enabled = !ui.loading,
                         onNavigate = { vm.list(it) },
-                        modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                        modifier = Modifier.padding(start = 2.dp, end = 4.dp),
                     )
                 }
             }
@@ -522,7 +532,39 @@ fun FilesScreen(
     }
 }
 
-/** 底部路径：`/ > home > cuid`，每一段为按钮，点击跳转到对应目录 */
+/** 小圆形图标区：比默认 IconButton 更紧凑 */
+@Composable
+private fun CompactIconTap(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    icon: ImageVector,
+    contentDescription: String?,
+    boxSize: Dp,
+    iconSize: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val tint = if (enabled) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.34f)
+    }
+    Box(
+        modifier = modifier
+            .size(boxSize)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(iconSize),
+            tint = tint,
+        )
+    }
+}
+
+/** 底部路径：视觉上接近 `/home/cuid`，`/` 与每段目录名可点，斜杠分隔更紧凑 */
 @Composable
 private fun ClickableRemotePath(
     currentPath: String,
@@ -536,38 +578,44 @@ private fun ClickableRemotePath(
     } else {
         norm.removePrefix("/").split('/').filter { it.isNotEmpty() }
     }
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val sepStyle = MaterialTheme.typography.bodyMedium
+    val linkColor = MaterialTheme.colorScheme.primary
+    val sepColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+    val labelStyle = MaterialTheme.typography.labelMedium
+    val sepStyle = MaterialTheme.typography.labelSmall
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        TextButton(
-            onClick = { onNavigate("/") },
-            enabled = enabled,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-        ) { Text("/") }
-
+        Text(
+            text = "/",
+            style = labelStyle,
+            color = linkColor,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable(enabled = enabled) { onNavigate("/") }
+                .padding(horizontal = 2.dp, vertical = 1.dp),
+        )
         var acc = ""
-        parts.forEachIndexed { _, part ->
-            Text(
-                text = " > ",
-                style = sepStyle,
-                color = muted,
-            )
-            acc = if (acc.isEmpty()) "/$part" else "$acc/$part"
-            // 必须固定当前路径到局部变量，否则 onClick 读到的是循环结束后的 acc（闭包陷阱）
-            val targetPath = acc
-            TextButton(
-                onClick = { onNavigate(targetPath) },
-                enabled = enabled,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            ) {
+        parts.forEachIndexed { idx, part ->
+            if (idx > 0) {
                 Text(
-                    text = part,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "/",
+                    style = sepStyle,
+                    color = sepColor,
+                    modifier = Modifier.padding(horizontal = 0.dp),
                 )
             }
+            acc = if (acc.isEmpty()) "/$part" else "$acc/$part"
+            val targetPath = acc
+            Text(
+                text = part,
+                style = labelStyle,
+                color = linkColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(enabled = enabled) { onNavigate(targetPath) }
+                    .padding(horizontal = 2.dp, vertical = 1.dp),
+            )
         }
     }
 }

@@ -129,7 +129,6 @@ fun FilesScreen(
     var pendingEdit by remember { mutableStateOf<RemoteEntryUi?>(null) }
     var editText by remember { mutableStateOf("") }
     var editLoading by remember { mutableStateOf(false) }
-    var showHiddenFiles by remember { mutableStateOf(false) }
     var showNewFileDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
     var pendingChmod by remember { mutableStateOf<RemoteEntryUi?>(null) }
@@ -150,9 +149,9 @@ fun FilesScreen(
         }
     }
 
-    val displayEntries = remember(ui.entries, showHiddenFiles) {
+    val displayEntries = remember(ui.entries, ui.showDotfiles) {
         ui.entries
-            .filter { showHiddenFiles || !it.name.startsWith(".") }
+            .filter { ui.showDotfiles || !it.name.startsWith(".") }
             .sortedWith(compareByDescending<RemoteEntryUi> { it.isDir }.thenBy { it.name.lowercase() })
     }
 
@@ -336,9 +335,9 @@ fun FilesScreen(
                     IconButton(onClick = { vm.list(ui.currentPath) }, enabled = !ui.loading, modifier = Modifier.size(44.dp)) {
                         Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "刷新目录")
                     }
-                    IconButton(onClick = { showHiddenFiles = !showHiddenFiles }, modifier = Modifier.size(44.dp)) {
+                    IconButton(onClick = { vm.setShowDotfiles(!ui.showDotfiles) }, modifier = Modifier.size(44.dp)) {
                         Icon(
-                            imageVector = if (showHiddenFiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            imageVector = if (ui.showDotfiles) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                             contentDescription = "显示隐藏文件",
                         )
                     }
@@ -621,6 +620,8 @@ data class FilesUi(
     val status: String? = null,
     val statusOk: Boolean = false,
     val entries: List<RemoteEntryUi> = emptyList(),
+    /** 为 true 时列表与「列目录成功：N 项」均包含以 `.` 开头的项 */
+    val showDotfiles: Boolean = false,
     val progressActive: Boolean = false,
     val progressText: String? = null,
     val progressValue: Float? = null,
@@ -715,13 +716,30 @@ class FilesViewModel(app: Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(status = msg, statusOk = ok)
     }
 
+    private fun displayedEntryCount(entries: List<RemoteEntryUi>, showDotfiles: Boolean): Int =
+        if (showDotfiles) entries.size else entries.count { !it.name.startsWith(".") }
+
+    private fun listSuccessStatus(entries: List<RemoteEntryUi>, showDotfiles: Boolean): String =
+        "列目录成功：${displayedEntryCount(entries, showDotfiles)} 项"
+
+    fun setShowDotfiles(show: Boolean) {
+        val cur = _ui.value
+        val newStatus =
+            if (cur.entries.isNotEmpty() && cur.status?.startsWith("列目录成功") == true) {
+                listSuccessStatus(cur.entries, show)
+            } else {
+                cur.status
+            }
+        _ui.value = cur.copy(showDotfiles = show, status = newStatus)
+    }
+
     fun connect(hostId: Long) {
         viewModelScope.launch {
             if (_ui.value.connected && _ui.value.connectedHostId == hostId) {
                 // already connected to same host
                 return@launch
             }
-            _ui.value = _ui.value.copy(connecting = true, status = null, statusOk = false, entries = emptyList())
+            _ui.value = _ui.value.copy(connecting = true, status = null, statusOk = false, entries = emptyList(), showDotfiles = false)
             val host = withContext(Dispatchers.IO) { hostRepo.getById(hostId) }
             if (host == null) {
                 _ui.value = _ui.value.copy(connecting = false, status = "主机不存在", statusOk = false, connected = false, connectedHostId = null)
@@ -741,12 +759,21 @@ class FilesViewModel(app: Application) : AndroidViewModel(app) {
     fun disconnect() {
         viewModelScope.launch {
             sftp.disconnect()
-            _ui.value = _ui.value.copy(connected = false, connectedHostId = null, currentPath = "/", status = "已断开", statusOk = true, entries = emptyList())
+            _ui.value = _ui.value.copy(
+                connected = false,
+                connectedHostId = null,
+                currentPath = "/",
+                status = "已断开",
+                statusOk = true,
+                entries = emptyList(),
+                showDotfiles = false,
+            )
         }
     }
 
     fun list(path: String) {
         viewModelScope.launch {
+            val showDot = _ui.value.showDotfiles
             _ui.value = _ui.value.copy(loading = true, status = null, entries = emptyList())
             val r = sftp.list(path)
             val disconnected = !r.ok && r.message.contains("connection abort", ignoreCase = true)
@@ -756,7 +783,11 @@ class FilesViewModel(app: Application) : AndroidViewModel(app) {
             }
             _ui.value = _ui.value.copy(
                 loading = false,
-                status = if (disconnected) "连接已断开，请重新连接" else r.message,
+                status = when {
+                    disconnected -> "连接已断开，请重新连接"
+                    r.ok -> listSuccessStatus(r.entries, showDot)
+                    else -> r.message
+                },
                 statusOk = r.ok && !disconnected,
                 currentPath = if (r.ok) path else _ui.value.currentPath,
                 entries = if (disconnected) emptyList() else r.entries,

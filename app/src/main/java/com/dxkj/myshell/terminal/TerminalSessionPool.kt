@@ -53,6 +53,62 @@ object TerminalSessionPool {
         _activeSessionId.value = sessionId
     }
 
+    fun renameSession(sessionId: Long, newTitle: String) {
+        val t = newTitle.trim()
+        if (t.isEmpty()) return
+        _sessions.update { list ->
+            list.map {
+                if (it.sessionId == sessionId) it.copy(customTitle = t)
+                else it
+            }
+        }
+    }
+
+    fun getDisplayTitle(s: SessionState): String = s.customTitle ?: s.title
+
+    /**
+     * 复制一个会话（同一 host 再开一个连接），并按 Shell 工具常见规则自动命名：
+     * - aix -> aix(1) -> aix(2) ...
+     * - aix(1) -> aix(2) ...
+     */
+    fun duplicateSession(fromSessionId: Long): Long? {
+        val from = _sessions.value.firstOrNull { it.sessionId == fromSessionId } ?: return null
+        val existingNames = _sessions.value
+            .filter { it.hostId == from.hostId }
+            .map { getDisplayTitle(it) }
+            .toSet()
+
+        val fromName = getDisplayTitle(from)
+        val (base, fromN) = parseBaseAndSuffix(fromName)
+        val start = if (fromN != null) (fromN + 1) else 1
+        val newName = nextAvailableName(base, existingNames, start)
+
+        val newId = openNewSession(from.hostId)
+        renameSession(newId, newName) // 使用 customTitle 覆盖显示名
+        setActive(newId)
+        return newId
+    }
+
+    private fun parseBaseAndSuffix(name: String): Pair<String, Int?> {
+        val m = Regex("""^(.*)\((\d+)\)$""").matchEntire(name.trim())
+        return if (m != null) {
+            val base = m.groupValues[1].trim()
+            val n = m.groupValues[2].toIntOrNull()
+            base to n
+        } else {
+            name.trim() to null
+        }
+    }
+
+    private fun nextAvailableName(base: String, used: Set<String>, start: Int): String {
+        var n = start.coerceAtLeast(1)
+        while (true) {
+            val candidate = "$base($n)"
+            if (!used.contains(candidate)) return candidate
+            n += 1
+        }
+    }
+
     fun ensureSession(hostId: Long) {
         // 已有会话则切换到它；否则新建并连接
         val existing = _sessions.value.firstOrNull { it.hostId == hostId }
@@ -63,7 +119,9 @@ object TerminalSessionPool {
         open(hostId)
     }
 
-    fun open(hostId: Long) {
+    fun openNewSession(hostId: Long): Long = open(hostId)
+
+    fun open(hostId: Long): Long {
         val sessionId = nextId.getAndIncrement()
         val autoReconnect = prefs.getBoolean("autoReconnect_$hostId", true)
 
@@ -86,6 +144,7 @@ object TerminalSessionPool {
         scope.launch {
             connectInternal(sessionId)
         }
+        return sessionId
     }
 
     fun close(sessionId: Long) {
@@ -210,12 +269,19 @@ object TerminalSessionPool {
             return
         }
 
+        // ShellBean 风格：会话名称基于“服务器配置名”，同一服务器多会话自动追加 (1)(2)…
         _sessions.update { list ->
+            val sameHost = list.filter { it.hostId == host.id }.sortedBy { it.sessionId }
+            val idx = sameHost.indexOfFirst { it.sessionId == sessionId }
+            val suffix = if (idx <= 0) "" else "(${idx})"
+            val title = host.name + suffix
             list.map {
-                if (it.sessionId == sessionId) it.copy(title = "${host.username}@${host.host}")
+                if (it.sessionId == sessionId) it.copy(title = title)
                 else it
             }
         }
+
+        // title already set above
 
         val result = withContext(Dispatchers.IO) { s0.ssh.connect(host) }
         if (!result.ok) {
@@ -248,7 +314,8 @@ object TerminalSessionPool {
         term.setTitle("SSH")
         term.setTermIn(input)
         term.setTermOut(out)
-        term.initializeEmulator(80, 24)
+        // 关键：不要在没有 TermKeyListener 的情况下提前 initializeEmulator。
+        // 否则库内部会创建 TerminalEmulator(keyListener=null)，后续即使 attach 到 EmulatorView 也可能不会补齐，从而在解析转义序列时 NPE。
         // 避免首次连接时协商序列（如 `1;2c`）残留在屏幕上
         try {
             term.setDefaultUTF8Mode(true)
@@ -318,6 +385,7 @@ data class SessionState(
     val sessionId: Long,
     val hostId: Long,
     val title: String,
+    val customTitle: String? = null,
     val connecting: Boolean,
     val connected: Boolean,
     val status: String?,

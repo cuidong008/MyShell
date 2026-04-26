@@ -1,10 +1,10 @@
 package com.dxkj.myshell.ui
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Storage
-import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Window
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class BottomTab(
@@ -12,9 +12,9 @@ sealed class BottomTab(
     val label: String,
     val icon: ImageVector,
 ) {
-    data object Hosts : BottomTab("hosts", "主机", Icons.Outlined.Storage)
-    data object Terminal : BottomTab("terminal", "终端", Icons.Outlined.Terminal)
-    data object Files : BottomTab("files", "文件", Icons.Outlined.Folder)
+    data object Servers : BottomTab("servers", "服务器", Icons.Outlined.Storage)
+    data object Sessions : BottomTab("sessions", "会话", Icons.Outlined.Window)
+    data object Overview : BottomTab("overview", "概览", Icons.Outlined.Dashboard)
     data object Keys : BottomTab("keys", "密钥", Icons.Outlined.Key)
 }
 

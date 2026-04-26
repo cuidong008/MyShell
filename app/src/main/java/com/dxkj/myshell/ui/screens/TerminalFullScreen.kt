@@ -567,7 +567,7 @@ class TerminalFullViewModel(
             term.setTitle("SSH")
             term.setTermIn(input)
             term.setTermOut(out)
-            term.initializeEmulator(80, 24)
+            // 同 TerminalSessionPool：避免在未绑定 KeyListener 时提前 initializeEmulator，防止库内部 NPE。
             // 避免首次连接时协商序列（如 `1;2c`）残留在屏幕上
             try {
                 term.setDefaultUTF8Mode(true)

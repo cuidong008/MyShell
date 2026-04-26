@@ -71,6 +71,8 @@ import kotlinx.coroutines.flow.map
 fun TerminalHubScreen(
     initialHostId: Long?,
     onExit: () -> Unit,
+    immersive: Boolean = true,
+    showBack: Boolean = true,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -133,25 +135,27 @@ fun TerminalHubScreen(
         prefs.edit().putBoolean("keyBar_$hid", keyBarVisible).apply()
     }
 
-    BackHandler {
-        onExit()
+    if (showBack) {
+        BackHandler { onExit() }
     }
 
-    DisposableEffect(Unit) {
-        if (activity != null) {
-            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            WindowCompat.setDecorFitsSystemWindows(activity.window, false)
-            val controller = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        }
-        onDispose {
+    if (immersive) {
+        DisposableEffect(Unit) {
             if (activity != null) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                WindowCompat.setDecorFitsSystemWindows(activity.window, false)
                 val controller = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
-                controller.show(WindowInsetsCompat.Type.systemBars())
-                WindowCompat.setDecorFitsSystemWindows(activity.window, true)
-                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+            onDispose {
+                if (activity != null) {
+                    val controller = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                    WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
             }
         }
     }
@@ -211,8 +215,10 @@ fun TerminalHubScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilledTonalIconButton(onClick = onExit) {
-                    Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+                if (showBack) {
+                    FilledTonalIconButton(onClick = onExit) {
+                        Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
+                    }
                 }
 
                 sessions.forEach { s ->

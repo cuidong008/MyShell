@@ -4,8 +4,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -13,12 +21,37 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
-import androidx.compose.material.icons.Icons
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -31,9 +64,15 @@ import com.dxkj.myshell.ui.screens.FilesScreen
 import com.dxkj.myshell.ui.screens.HostsScreen
 import com.dxkj.myshell.ui.screens.HostEditScreen
 import com.dxkj.myshell.ui.screens.KeysScreen
+import com.dxkj.myshell.ui.screens.OverviewScreen
+import com.dxkj.myshell.ui.screens.SessionsScreen
 import com.dxkj.myshell.ui.screens.TerminalFullScreen
 import com.dxkj.myshell.ui.screens.TerminalHubScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
+import com.dxkj.myshell.terminal.TerminalSessionPool
+import com.dxkj.myshell.terminal.SessionState
+import jackpal.androidterm.emulatorview.EmulatorView
+import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,31 +80,32 @@ fun AppNav() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val context = LocalContext.current
     val cfg = LocalConfiguration.current
     val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val isWide = cfg.screenWidthDp >= 840
     val useRail = isLandscape && isWide
 
-    val items = listOf(
-        BottomTab.Hosts,
-        BottomTab.Terminal,
-        BottomTab.Files,
-        BottomTab.Keys,
-    )
+    val items = listOf(BottomTab.Servers, BottomTab.Overview, BottomTab.Keys)
 
     val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true || currentRoute?.startsWith("terminal_hub") == true
-    val showBottomBar = (currentRoute in items.map { it.route }) && !isTerminalFull
+    val showNav = !isTerminalFull
+    val showBottomBar = showNav && !useRail
+    val showRail = showNav && useRail
+
+    TerminalSessionPool.init(context.applicationContext as android.app.Application)
+    val allSessions by TerminalSessionPool.sessions.collectAsState()
 
     Scaffold(
         topBar = {
-            if (!isTerminalFull) {
+            // ShellBean 风格：在横屏侧边栏布局下不显示“当前选中”顶部标题条
+            if (!isTerminalFull && !useRail) {
                 TopAppBar(
                     title = {
                         Text(
                             when (currentRoute) {
-                                BottomTab.Hosts.route -> BottomTab.Hosts.label
-                                BottomTab.Terminal.route -> BottomTab.Terminal.label
-                                BottomTab.Files.route -> BottomTab.Files.label
+                                BottomTab.Servers.route -> BottomTab.Servers.label
+                                BottomTab.Overview.route -> BottomTab.Overview.label
                                 BottomTab.Keys.route -> BottomTab.Keys.label
                                 "host_edit?hostId={hostId}" -> "编辑主机"
                                 else -> "MyShell"
@@ -73,7 +113,7 @@ fun AppNav() {
                         )
                     },
                     navigationIcon = {
-                        if (!showBottomBar) {
+                        if (!showNav) {
                             IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
                             }
@@ -83,19 +123,26 @@ fun AppNav() {
             }
         },
         bottomBar = {
-            if (showBottomBar && !useRail) {
+            if (showBottomBar) {
                 NavigationBar {
                     items.forEach { tab ->
                         NavigationBarItem(
                             selected = currentRoute == tab.route,
                             onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                if (tab.route == BottomTab.Servers.route) {
+                                    // 强制切回“服务器”，避免某些情况下回栈/恢复状态不生效
+                                    navController.navigate(BottomTab.Servers.route) {
+                                        popUpTo(BottomTab.Servers.route) { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                } else if (currentRoute != tab.route) {
+                                    navController.navigate(tab.route) {
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             },
-                            icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
+                            icon = {},
                             label = { Text(tab.label) },
                         )
                     }
@@ -103,45 +150,140 @@ fun AppNav() {
             }
         },
     ) { innerPadding ->
-        Row(modifier = Modifier.fillMaxSize()) {
-            if (showBottomBar && useRail) {
-                NavigationRail {
-                    items.forEach { tab ->
-                        NavigationRailItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 关键修复：当用户快速切换导航导致终端 UI 被销毁时，库内部会出现 TermKeyListener 为 null 的 NPE。
+            // 这里常驻一个“不可见的 EmulatorView”，确保每个活跃 TermSession 始终有 KeyListener 绑定，避免崩溃。
+            KeepAliveEmulatorViews(sessions = allSessions)
+
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (showRail) {
+                    val sessions = allSessions
+                    val activeId by TerminalSessionPool.activeSessionId.collectAsState()
+                    // 复制按钮：复制“会话”（克隆连接），不走剪贴板
+                    var renameSid by remember { mutableStateOf<Long?>(null) }
+                    var renameText by remember { mutableStateOf("") }
+
+                    Surface(
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxHeight().width(260.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding()
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            // 顶部分组（无图标占位，文字右对齐，高亮选中）
+                            items.forEach { tab ->
+                                val selected = currentRoute == tab.route
+                                SidebarRow(
+                                    title = tab.label,
+                                    selected = selected,
+                                    onClick = {
+                                        if (tab.route == BottomTab.Servers.route) {
+                                            navController.navigate(BottomTab.Servers.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                                                launchSingleTop = true
+                                                restoreState = false
+                                            }
+                                        } else if (currentRoute != tab.route) {
+                                            navController.navigate(tab.route) {
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                    },
+                                    trailing = {},
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("会话", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
+
+                            sessions.forEach { s ->
+                                val selected = (activeId == s.sessionId) && (currentRoute?.startsWith(BottomTab.Sessions.route) == true)
+                                val title = TerminalSessionPool.getDisplayTitle(s)
+                                SidebarRow(
+                                    title = title,
+                                    selected = selected,
+                                    onClick = {
+                                        TerminalSessionPool.setActive(s.sessionId)
+                                        navController.navigate("${BottomTab.Sessions.route}?sid=${s.sessionId}") { launchSingleTop = true }
+                                    },
+                                    trailing = {
+                                        SmallIconButton(onClick = {
+                                            renameSid = s.sessionId
+                                            renameText = title
+                                        }) {
+                                            Icon(imageVector = Icons.Outlined.Edit, contentDescription = "rename")
+                                        }
+                                        SmallIconButton(onClick = { TerminalSessionPool.close(s.sessionId) }) {
+                                            Icon(imageVector = Icons.Outlined.Delete, contentDescription = "delete")
+                                        }
+                                        SmallIconButton(onClick = {
+                                            val newId = TerminalSessionPool.duplicateSession(s.sessionId)
+                                            if (newId != null) {
+                                                navController.navigate("${BottomTab.Sessions.route}?sid=$newId") { launchSingleTop = true }
+                                            }
+                                        }) {
+                                            Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = "copy")
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    if (renameSid != null) {
+                        val sid = renameSid!!
+                        AlertDialog(
+                            onDismissRequest = { renameSid = null },
+                            title = { Text("重命名会话") },
+                            text = {
+                                OutlinedTextField(
+                                    value = renameText,
+                                    onValueChange = { renameText = it },
+                                    singleLine = true,
+                                    label = { Text("名称") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             },
-                            icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    TerminalSessionPool.renameSession(sid, renameText)
+                                    renameSid = null
+                                }) { Text("确定") }
+                            },
+                            dismissButton = { TextButton(onClick = { renameSid = null }) { Text("取消") } },
                         )
                     }
                 }
-            }
 
-            NavHost(
-                navController = navController,
-                startDestination = BottomTab.Hosts.route,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                composable(BottomTab.Hosts.route) {
+                NavHost(
+                    navController = navController,
+                    startDestination = BottomTab.Servers.route,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                composable(BottomTab.Servers.route) {
                     HostsScreen(
                         contentPadding = innerPadding,
                         onAddHost = { navController.navigate("host_edit?hostId=-1") },
                         onEditHost = { id -> navController.navigate("host_edit?hostId=$id") },
+                        onOpenSession = { hostId ->
+                            val sid = TerminalSessionPool.openNewSession(hostId)
+                            navController.navigate("${BottomTab.Sessions.route}?sid=$sid") { launchSingleTop = true }
+                        },
                     )
                 }
-                composable(BottomTab.Terminal.route) {
-                    TerminalScreen(
-                        contentPadding = innerPadding,
-                        onOpenFullTerminal = { hostId -> navController.navigate("terminal_hub?hostId=$hostId") },
-                    )
+                composable(
+                    route = "${BottomTab.Sessions.route}?sid={sid}",
+                    arguments = listOf(navArgument("sid") { type = NavType.LongType; defaultValue = -1L }),
+                ) { entry ->
+                    val sid = entry.arguments?.getLong("sid") ?: -1L
+                    SessionsScreen(contentPadding = innerPadding, initialSessionId = sid.takeIf { it > 0 })
                 }
-                composable(BottomTab.Files.route) { FilesScreen(contentPadding = innerPadding) }
+                composable(BottomTab.Overview.route) { OverviewScreen(contentPadding = innerPadding) }
                 composable(BottomTab.Keys.route) { KeysScreen(contentPadding = innerPadding) }
 
             composable(
@@ -175,9 +317,84 @@ fun AppNav() {
                 TerminalHubScreen(
                     initialHostId = hostId.takeIf { it > 0 },
                     onExit = { navController.popBackStack() },
+                    immersive = true,
+                    showBack = true,
                 )
             }
             }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeepAliveEmulatorViews(sessions: List<SessionState>) {
+    val context = LocalContext.current
+    val dm = context.resources.displayMetrics
+    // 尽量不影响交互：透明、极小、不可聚焦。仅用于让库内部 KeyListener 不为 null。
+    Column(modifier = Modifier.size(1.dp).alpha(0f)) {
+        sessions.forEach { s ->
+            val term = s.term ?: return@forEach
+            AndroidView(
+                factory = { ctx ->
+                    EmulatorView(ctx, term, dm).apply {
+                        setUseCookedIME(false)
+                        setTermType("xterm-256color")
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                        onResume()
+                    }
+                },
+                update = { v ->
+                    if (v.getTermSession() !== term) v.attachSession(term)
+                    v.onResume()
+                },
+                modifier = Modifier.size(1.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SidebarRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    trailing: @Composable RowScope.() -> Unit,
+) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End, // 右对齐
+    ) {
+        // 只让“文字区域”可点击，避免整行 clickable 吞掉右侧按钮点击
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onClick)
+                .padding(end = 6.dp),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(0.dp), content = trailing)
+    }
+}
+
+@Composable
+private fun SmallIconButton(
+    onClick: () -> Unit,
+    size: Dp = 28.dp,
+    iconSize: Dp = 18.dp,
+    content: @Composable () -> Unit,
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(size)) {
+        Box(modifier = Modifier.size(iconSize), contentAlignment = Alignment.Center) {
+            content()
         }
     }
 }

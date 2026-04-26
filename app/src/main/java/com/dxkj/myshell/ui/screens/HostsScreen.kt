@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
@@ -52,6 +53,7 @@ fun HostsScreen(
     contentPadding: PaddingValues,
     onAddHost: () -> Unit,
     onEditHost: (Long) -> Unit,
+    onOpenSession: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val vm: HostsViewModel = viewModel(
@@ -108,7 +110,8 @@ fun HostsScreen(
                 items(filtered, key = { it.id }) { item ->
                     HostRow(
                         host = item,
-                        onClick = { onEditHost(item.id) },
+                        onClick = { onOpenSession(item.id) },
+                        onEdit = { onEditHost(item.id) },
                         onDelete = { pendingDelete = item },
                     )
                 }
@@ -151,6 +154,7 @@ fun HostsScreen(
 private fun HostRow(
     host: HostEntity,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Row(
@@ -167,6 +171,9 @@ private fun HostRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        IconButton(onClick = onEdit) {
+            Icon(imageVector = Icons.Outlined.Edit, contentDescription = "edit")
         }
         IconButton(onClick = onDelete) {
             Icon(imageVector = Icons.Outlined.Delete, contentDescription = "delete")

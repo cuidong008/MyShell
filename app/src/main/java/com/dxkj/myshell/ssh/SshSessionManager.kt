@@ -239,6 +239,7 @@ class SshSessionManager(
             val r = execCaptureUnscoped(
                 c,
                 "bash -lc 'export LANG=C LC_ALL=C; ss -Hltn 2>/dev/null || netstat -lnt 2>/dev/null || true'",
+                timeoutSec = 12L,
             )
             if (r.isFailure) {
                 return@withContext Result.failure(r.exceptionOrNull() ?: Exception("扫描失败"))
@@ -260,12 +261,21 @@ class SshSessionManager(
             Result.success(list.size)
         }
 
-    private suspend fun execCaptureUnscoped(c: SSHClient, command: String): Result<String> =
+    /**
+     * 在已连接的 SSH 上执行一条远端命令并合并 stdout/stderr（用于概览监控等）。
+     */
+    suspend fun execRemoteCapture(command: String, timeoutSec: Long = 12L): Result<String> =
+        withContext(Dispatchers.IO) {
+            val c = client ?: return@withContext Result.failure(IllegalStateException("未连接"))
+            execCaptureUnscoped(c, command, timeoutSec)
+        }
+
+    private suspend fun execCaptureUnscoped(c: SSHClient, command: String, timeoutSec: Long = 12L): Result<String> =
         withContext(Dispatchers.IO) {
             val sess = c.startSession()
             try {
                 val cmd = sess.exec(command)
-                cmd.join(12, TimeUnit.SECONDS)
+                cmd.join(timeoutSec.coerceIn(3L, 120L), TimeUnit.SECONDS)
                 val out = cmd.inputStream.use { ins -> ins.readBytes().toString(Charsets.UTF_8) }
                 val err = cmd.errorStream.use { es -> es.readBytes().toString(Charsets.UTF_8) }
                 val merged = listOf(out, err).filter { it.isNotBlank() }.joinToString("\n")

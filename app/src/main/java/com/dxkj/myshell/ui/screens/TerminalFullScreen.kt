@@ -4,8 +4,10 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -71,6 +73,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 @Composable
 fun TerminalFullScreen(
@@ -96,6 +99,7 @@ fun TerminalFullScreen(
     var schemeId by remember { mutableIntStateOf(prefs.getInt("scheme_$hostId", 0)) }
     var bgAlphaStep by remember { mutableIntStateOf(prefs.getInt("bgAlpha_$hostId", 0)) } // 0..2
     var cursorHighContrast by remember { mutableStateOf(prefs.getBoolean("cursorHi_$hostId", true)) }
+    var selectingText by remember { mutableStateOf(false) }
 
     fun pokeInteraction() {
         lastInteractionMs = System.currentTimeMillis()
@@ -188,6 +192,11 @@ fun TerminalFullScreen(
                         factory = { ctx ->
                             val dm = ctx.resources.displayMetrics
                             EmulatorView(ctx, ui.session, dm).apply {
+                                val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+                                var downX = 0f
+                                var downY = 0f
+                                var dragging = false
+
                                 setTextSize(fontSize)
                                 setUseCookedIME(false)
                                 setTermType("xterm-256color")
@@ -199,8 +208,63 @@ fun TerminalFullScreen(
                                 isFocusableInTouchMode = true
                                 requestFocus()
                                 onResume()
+                                fun safeGetSelectedText(): String? {
+                                    return try {
+                                        getSelectedText()
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                }
                                 setOnTouchListener { v: View, ev: MotionEvent ->
                                     if (ev.action == MotionEvent.ACTION_DOWN) pokeInteraction()
+                                    val isMouse = (ev.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+                                    if (isMouse) {
+                                        // 右键 / 中键：粘贴
+                                        val right = (ev.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
+                                        val middle = (ev.buttonState and MotionEvent.BUTTON_TERTIARY) != 0
+                                        if ((right || middle) && ev.action == MotionEvent.ACTION_DOWN) {
+                                            val t = clipboard.getText()?.text.orEmpty()
+                                            if (t.isNotBlank()) ui.session?.write(t)
+                                            return@setOnTouchListener true
+                                        }
+
+                                        val left = (ev.buttonState and MotionEvent.BUTTON_PRIMARY) != 0
+                                        when (ev.actionMasked) {
+                                            MotionEvent.ACTION_DOWN -> {
+                                                downX = ev.x
+                                                downY = ev.y
+                                                dragging = false
+                                            }
+                                            MotionEvent.ACTION_MOVE -> {
+                                                if (left && !dragging) {
+                                                    val dx = abs(ev.x - downX)
+                                                    val dy = abs(ev.y - downY)
+                                                    if (dx > slop || dy > slop) {
+                                                        dragging = true
+                                                        if (!selectingText) {
+                                                            try {
+                                                                toggleSelectingText()
+                                                                selectingText = true
+                                                            } catch (_: Throwable) {
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                                if (selectingText && dragging) {
+                                                    val selected = safeGetSelectedText()?.takeIf { it.isNotBlank() }
+                                                    if (!selected.isNullOrBlank()) clipboard.setText(AnnotatedString(selected))
+                                                    try {
+                                                        toggleSelectingText()
+                                                    } catch (_: Throwable) {
+                                                    }
+                                                    selectingText = false
+                                                    dragging = false
+                                                }
+                                            }
+                                        }
+                                    }
                                     v.onTouchEvent(ev)
                                 }
                                 viewRef = this

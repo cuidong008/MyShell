@@ -3,8 +3,12 @@ package com.dxkj.myshell.ui.screens
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.view.InputDevice
+import android.view.inputmethod.InputMethodManager
 import android.view.WindowManager
 import android.view.View
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,20 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Contrast
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Add as AddIcon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -68,6 +67,7 @@ import com.dxkj.myshell.terminal.TerminalSessionPool
 import jackpal.androidterm.emulatorview.ColorScheme
 import jackpal.androidterm.emulatorview.EmulatorView
 import kotlinx.coroutines.flow.map
+import kotlin.math.abs
 
 @Composable
 fun TerminalHubScreen(
@@ -82,6 +82,7 @@ fun TerminalHubScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val clipboard = LocalClipboardManager.current
+    val imm = remember(context) { context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager }
 
     TerminalSessionPool.init(context.applicationContext as Application)
 
@@ -99,6 +100,44 @@ fun TerminalHubScreen(
     var keyBarVisible by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showCopyHint by remember { mutableStateOf(false) }
+    var selectingText by remember { mutableStateOf(false) }
+    var copyHintText by remember { mutableStateOf("已复制到剪贴板") }
+
+    fun safeGetSelectedText(): String? {
+        // 这个库在某些边界条件下会在内部抛 ArrayIndexOutOfBounds（选区为 -1 等）
+        return try {
+            viewRef?.getSelectedText()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun handleMouseMobaXtermLike(ev: MotionEvent): Boolean {
+        val isMouse = (ev.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+        if (!isMouse) return false
+
+        // 右键：粘贴
+        val right = (ev.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
+        if (right && ev.action == MotionEvent.ACTION_DOWN) {
+            val t = clipboard.getText()?.text.orEmpty()
+            if (t.isNotBlank()) active?.term?.write(t)
+            return true
+        }
+
+        // 中键：粘贴（更接近桌面）
+        val middle = (ev.buttonState and MotionEvent.BUTTON_TERTIARY) != 0
+        if (middle && ev.action == MotionEvent.ACTION_DOWN) {
+            val t = clipboard.getText()?.text.orEmpty()
+            if (t.isNotBlank()) active?.term?.write(t)
+            return true
+        }
+
+        // 左键：单击仍走终端交互；拖动超过阈值才进入选择；松开自动复制并退出选择
+        val left = (ev.buttonState and MotionEvent.BUTTON_PRIMARY) != 0
+        if (!left) return false
+        return false
+    }
 
     // 初始 hostId：自动开会话
     LaunchedEffect(initialHostId) {
@@ -172,6 +211,11 @@ fun TerminalHubScreen(
                 factory = { ctx ->
                     val dm = ctx.resources.displayMetrics
                     EmulatorView(ctx, active.term, dm).apply {
+                        val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+                        var downX = 0f
+                        var downY = 0f
+                        var dragging = false
+
                         setTextSize(fontSize)
                         setUseCookedIME(false)
                         setTermType("xterm-256color")
@@ -183,6 +227,61 @@ fun TerminalHubScreen(
                         isFocusableInTouchMode = true
                         requestFocus()
                         onResume()
+                        setOnTouchListener { v, ev ->
+                            val isMouse = (ev.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+                            if (isMouse) {
+                                // 右键 / 中键：粘贴
+                                val right = (ev.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
+                                val middle = (ev.buttonState and MotionEvent.BUTTON_TERTIARY) != 0
+                                if ((right || middle) && ev.action == MotionEvent.ACTION_DOWN) {
+                                    val t = clipboard.getText()?.text.orEmpty()
+                                    if (t.isNotBlank()) active.term?.write(t)
+                                    return@setOnTouchListener true
+                                }
+
+                                val left = (ev.buttonState and MotionEvent.BUTTON_PRIMARY) != 0
+                                when (ev.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        downX = ev.x
+                                        downY = ev.y
+                                        dragging = false
+                                    }
+                                    MotionEvent.ACTION_MOVE -> {
+                                        if (left && !dragging) {
+                                            val dx = abs(ev.x - downX)
+                                            val dy = abs(ev.y - downY)
+                                            if (dx > slop || dy > slop) {
+                                                dragging = true
+                                                if (!selectingText) {
+                                                    try {
+                                                        toggleSelectingText()
+                                                        selectingText = true
+                                                    } catch (_: Throwable) {
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                        if (selectingText && dragging) {
+                                            val selected = safeGetSelectedText()?.takeIf { it.isNotBlank() }
+                                            if (!selected.isNullOrBlank()) {
+                                                clipboard.setText(AnnotatedString(selected))
+                                                copyHintText = "已复制到剪贴板"
+                                                showCopyHint = true
+                                            }
+                                            try {
+                                                toggleSelectingText()
+                                            } catch (_: Throwable) {
+                                            }
+                                            selectingText = false
+                                            dragging = false
+                                        }
+                                    }
+                                }
+                            }
+                            v.onTouchEvent(ev)
+                        }
                         viewRef = this
                     }
                 },
@@ -204,181 +303,7 @@ fun TerminalHubScreen(
         }
 
         // 顶部：标签栏 + 工具条（嵌入会话工作区时可关闭，避免占空间）
-        if (!showTopOverlay && compactTopOverlay && onToggleTopOverlay != null) {
-            // 隐藏时保留一个“小把手”按钮，用于展开工具条
-            FilledTonalIconButton(
-                onClick = onToggleTopOverlay,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    // 嵌入模式也要避开状态栏，否则会被“时间那条”吃掉点击
-                    .statusBarsPadding()
-                    .padding(8.dp),
-            ) {
-                Icon(imageVector = Icons.Outlined.KeyboardArrowDown, contentDescription = "show toolbar")
-            }
-        }
-
-        if (showTopOverlay) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    // 顶部工具条需要避开状态栏，避免点不到；其它内容仍可从顶部开始显示
-                    .statusBarsPadding()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (compactTopOverlay) {
-                    // 精简工具条：常用按钮 + 收起按钮
-                    Row(
-                        modifier = Modifier
-                            .background(Color(0xAA111111), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        FilledTonalIconButton(onClick = { showHostPicker = true }) {
-                            Icon(imageVector = Icons.Outlined.Add, contentDescription = "new")
-                        }
-                        if (active != null) {
-                            FilledTonalIconButton(onClick = { TerminalSessionPool.reconnect(active.sessionId) }, enabled = !active.connected && !active.connecting) {
-                                Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "reconnect")
-                            }
-                            FilledTonalIconButton(onClick = { TerminalSessionPool.disconnect(active.sessionId) }, enabled = active.connected) {
-                                Icon(imageVector = Icons.Outlined.PowerSettingsNew, contentDescription = "disconnect")
-                            }
-                            FilledTonalIconButton(
-                                onClick = {
-                                    val t = clipboard.getText()?.text.orEmpty()
-                                    if (t.isNotBlank()) active.term?.write(t)
-                                },
-                                enabled = active.term != null,
-                            ) {
-                                Icon(imageVector = Icons.Outlined.ContentPaste, contentDescription = "paste")
-                            }
-                        }
-                        if (onToggleTopOverlay != null) {
-                            FilledTonalIconButton(onClick = onToggleTopOverlay) {
-                                Icon(imageVector = Icons.Outlined.KeyboardArrowUp, contentDescription = "hide toolbar")
-                            }
-                        }
-                    }
-                } else {
-                Row(
-                    modifier = Modifier
-                        .background(Color(0xAA111111), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (showBack) {
-                        FilledTonalIconButton(onClick = onExit) {
-                            Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
-                        }
-                    }
-
-                sessions.forEach { s ->
-                    Row(
-                        modifier = Modifier
-                            .background(
-                                if (s.sessionId == active?.sessionId) Color(0x6633FF33) else Color(0x33000000),
-                                RoundedCornerShape(10.dp),
-                            )
-                            .clickable { TerminalSessionPool.setActive(s.sessionId) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text(text = s.title, color = Color.White, style = MaterialTheme.typography.labelLarge)
-                        FilledTonalIconButton(onClick = { TerminalSessionPool.close(s.sessionId) }) {
-                            Icon(imageVector = Icons.Outlined.Close, contentDescription = "close")
-                        }
-                    }
-                }
-
-                    FilledTonalIconButton(onClick = { showHostPicker = true }) {
-                        Icon(imageVector = Icons.Outlined.Add, contentDescription = "new")
-                    }
-                }
-
-                if (active != null) {
-                    Row(
-                        modifier = Modifier
-                            .background(Color(0xAA111111), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                    FilledTonalIconButton(
-                        onClick = { schemeId = (schemeId + 1) % 7 },
-                        enabled = active.term != null,
-                    ) { Icon(imageVector = Icons.Outlined.Palette, contentDescription = "theme") }
-
-                    FilledTonalIconButton(
-                        onClick = { bgAlphaStep = (bgAlphaStep + 1) % 3 },
-                        enabled = active.term != null,
-                    ) { Text(text = if (bgAlphaStep == 0) "不透明" else if (bgAlphaStep == 1) "半透" else "更透", color = Color.White) }
-
-                    FilledTonalIconButton(
-                        onClick = { cursorHighContrast = !cursorHighContrast },
-                        enabled = active.term != null,
-                    ) { Icon(imageVector = Icons.Outlined.Contrast, contentDescription = "cursor") }
-
-                    FilledTonalIconButton(onClick = { TerminalSessionPool.toggleAutoReconnect(active.sessionId) }) {
-                        Text(text = if (active.autoReconnect) "自重连" else "不重连", color = Color.White, style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    FilledTonalIconButton(
-                        onClick = { showMoreMenu = true },
-                        enabled = true,
-                    ) {
-                        Icon(imageVector = Icons.Outlined.MoreVert, contentDescription = "more")
-                    }
-
-                    FilledTonalIconButton(onClick = { keyBarVisible = !keyBarVisible }, enabled = active.term != null) {
-                        Icon(imageVector = if (keyBarVisible) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.Keyboard, contentDescription = "keybar")
-                    }
-
-                    FilledTonalIconButton(onClick = { fontSize = (fontSize - 1).coerceAtLeast(10) }, enabled = active.term != null) {
-                        Icon(imageVector = Icons.Outlined.Remove, contentDescription = "font-")
-                    }
-                    FilledTonalIconButton(onClick = { fontSize = (fontSize + 1).coerceAtMost(26) }, enabled = active.term != null) {
-                        Icon(imageVector = Icons.Outlined.Add, contentDescription = "font+")
-                    }
-
-                    FilledTonalIconButton(onClick = { TerminalSessionPool.reconnect(active.sessionId) }, enabled = !active.connected && !active.connecting) {
-                        Icon(imageVector = Icons.Outlined.Refresh, contentDescription = "reconnect")
-                    }
-                    FilledTonalIconButton(onClick = { TerminalSessionPool.disconnect(active.sessionId) }, enabled = active.connected) {
-                        Icon(imageVector = Icons.Outlined.PowerSettingsNew, contentDescription = "disconnect")
-                    }
-
-                    FilledTonalIconButton(
-                        onClick = {
-                            val t = clipboard.getText()?.text.orEmpty()
-                            if (t.isNotBlank()) active.term?.write(t)
-                        },
-                        enabled = active.term != null,
-                    ) { Icon(imageVector = Icons.Outlined.ContentPaste, contentDescription = "paste") }
-
-                    FilledTonalIconButton(
-                        onClick = {
-                            val t = clipboard.getText()?.text.orEmpty()
-                            if (t.isNotBlank()) TerminalSessionPool.broadcastWrite(t)
-                        },
-                        enabled = sessions.any { it.term != null },
-                    ) { Text(text = "广播粘贴", color = Color.White, style = MaterialTheme.typography.labelSmall) }
-
-                    FilledTonalIconButton(
-                        onClick = { TerminalSessionPool.exportLog(active.sessionId) },
-                        enabled = active.term != null,
-                    ) { Icon(imageVector = Icons.Outlined.Save, contentDescription = "save log") }
-                    }
-                }
-                }
-            }
-        }
+        // 顶部按钮已按需求全部移除（尽量接近桌面终端体验：鼠标选择/右键粘贴）
 
         if (active != null && !active.status.isNullOrBlank() && (active.connecting || !active.connected)) {
             Text(
@@ -429,6 +354,10 @@ fun TerminalHubScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             showMoreMenu = false
+                            showHostPicker = true
+                        }) { Text("新建会话") }
+                        TextButton(onClick = {
+                            showMoreMenu = false
                             TerminalSessionPool.closeOthers(active.sessionId)
                         }) { Text("关闭其它会话") }
                         TextButton(onClick = {
@@ -442,6 +371,24 @@ fun TerminalHubScreen(
                     }
                 },
             )
+        }
+
+        if (showCopyHint) {
+            // 轻提示：避免引入 SnackbarHost/Scaffold 改动过大
+            Text(
+                text = copyHintText,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
+                    .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
+                    .background(Color(0xAA111111), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(1200)
+                showCopyHint = false
+            }
         }
     }
 }

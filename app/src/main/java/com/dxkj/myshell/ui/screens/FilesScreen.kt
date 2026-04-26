@@ -56,6 +56,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -95,13 +96,25 @@ import kotlinx.coroutines.flow.map
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun FilesScreen(contentPadding: PaddingValues) {
+fun FilesScreen(
+    contentPadding: PaddingValues,
+    /** 与终端当前会话同一主机：进入文件页时自动连接并列出远程目录（ShellBean 式联动） */
+    linkedHostId: Long? = null,
+) {
     val context = LocalContext.current
     val vm: FilesViewModel = viewModel(factory = FilesViewModel.factory(context.applicationContext as Application))
     val hosts by vm.hosts.collectAsState()
     val ui by vm.ui.collectAsState()
 
     var selectedHostId by remember { mutableStateOf<Long?>(null) }
+
+    val hostListKey = remember(hosts) { hosts.joinToString(",") { it.id.toString() } }
+    LaunchedEffect(linkedHostId, hostListKey) {
+        val hid = linkedHostId?.takeIf { it > 0 } ?: return@LaunchedEffect
+        if (hosts.none { it.id == hid }) return@LaunchedEffect
+        selectedHostId = hid
+        vm.connect(hid)
+    }
     // current path is now driven by ui.currentPath (auto set to home on connect)
     var uploadUri by remember { mutableStateOf<Uri?>(null) }
     var showMkdir by remember { mutableStateOf(false) }

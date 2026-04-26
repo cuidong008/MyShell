@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.view.WindowManager
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -166,6 +167,9 @@ fun TerminalHubScreen(
                         setUseCookedIME(false)
                         setTermType("xterm-256color")
                         setColorScheme(colorSchemeFor(schemeId, bgAlphaStep, cursorHighContrast))
+                        isVerticalScrollBarEnabled = true
+                        isHorizontalScrollBarEnabled = false
+                        scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
                         isFocusable = true
                         isFocusableInTouchMode = true
                         requestFocus()

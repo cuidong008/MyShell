@@ -192,6 +192,9 @@ fun TerminalFullScreen(
                                 setUseCookedIME(false)
                                 setTermType("xterm-256color")
                                 setColorScheme(colorSchemeFor(schemeId, bgAlphaStep, cursorHighContrast))
+                                isVerticalScrollBarEnabled = true
+                                isHorizontalScrollBarEnabled = false
+                                scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
                                 isFocusable = true
                                 isFocusableInTouchMode = true
                                 requestFocus()

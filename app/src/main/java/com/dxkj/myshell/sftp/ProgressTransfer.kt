@@ -72,9 +72,20 @@ class OutputStreamDestFile(
         return CountingOutputStream(open(append), onProgress)
     }
 
-    override fun getChild(child: String): LocalDestFile = error("not supported")
-    override fun getTargetFile(name: String): LocalDestFile = error("not supported")
-    override fun getTargetDirectory(name: String): LocalDestFile = error("not supported")
+    /**
+     * sshj 的 Downloader 会把传入的 LocalDestFile 当作“目录”来解析，
+     * 并调用 getTargetFile(remoteName) 获取真正的目标文件。
+     * 我们这里下载的是单文件场景，因此返回一个“指向同一输出流工厂”的目标文件即可。
+     */
+    override fun getChild(child: String): LocalDestFile = getTargetFile(child)
+    override fun getTargetFile(name: String): LocalDestFile =
+        OutputStreamDestFile(
+            name = name,
+            length = length,
+            open = open,
+            onProgress = onProgress,
+        )
+    override fun getTargetDirectory(name: String): LocalDestFile = this
     override fun setPermissions(perms: Int) {}
     override fun setLastAccessedTime(time: Long) {}
     override fun setLastModifiedTime(time: Long) {}
@@ -92,7 +103,8 @@ class InputStreamSourceFile(
     @Throws(IOException::class)
     override fun getInputStream(): InputStream = CountingInputStream(open(), onProgress)
 
-    override fun getPermissions(): Int = 0
+    // 默认上传权限：rw-r--r--（避免出现 ---------- 的不可读文件）
+    override fun getPermissions(): Int = 420 // 0644
     override fun isFile(): Boolean = true
     override fun isDirectory(): Boolean = false
     override fun getChildren(filter: LocalFileFilter): Iterable<LocalSourceFile> = emptyList()

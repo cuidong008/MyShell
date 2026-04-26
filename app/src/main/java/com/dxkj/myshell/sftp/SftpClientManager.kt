@@ -2,8 +2,8 @@ package com.dxkj.myshell.sftp
 
 import android.content.ContentResolver
 import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.provider.MediaStore
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.KeyRepository
@@ -19,12 +19,18 @@ import net.schmizz.sshj.userauth.UserAuthException
 import net.schmizz.sshj.userauth.password.PasswordFinder
 import net.schmizz.sshj.userauth.password.Resource
 import java.io.File
+import java.io.FileOutputStream
 import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import com.dxkj.myshell.ssh.SshCompatConfig
 import android.provider.OpenableColumns
+import net.schmizz.sshj.sftp.RemoteFile
+import net.schmizz.sshj.sftp.SFTPException
+import java.io.ByteArrayOutputStream
+import java.nio.charset.Charset
+import android.util.Log
 
 data class ListResult(val ok: Boolean, val message: String, val entries: List<RemoteEntryUi>)
 
@@ -131,6 +137,11 @@ class SftpClientManager(
         }
     }
 
+    suspend fun homeDir(): Result<String> = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        return@withContext runCatching { s.canonicalize(".") }
+    }
+
     suspend fun mkdir(path: String): String = withContext(Dispatchers.IO) {
         val s = sftp ?: return@withContext "未连接"
         return@withContext try {
@@ -166,45 +177,98 @@ class SftpClientManager(
         }
     }
 
+    suspend fun readTextFile(remotePath: String, maxBytes: Int = 512 * 1024): Result<String> = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        return@withContext try {
+            s.open(remotePath).use { rf: RemoteFile ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(16 * 1024)
+                var total = 0
+                while (true) {
+                    val n = rf.read(total.toLong(), buf, 0, buf.size)
+                    if (n <= 0) break
+                    total += n
+                    if (total > maxBytes) break
+                    out.write(buf, 0, n)
+                }
+                val bytes = out.toByteArray()
+                Result.success(bytes.toString(Charset.forName("UTF-8")))
+            }
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    suspend fun writeTextFile(remotePath: String, text: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val s = sftp ?: return@withContext Result.failure(IllegalStateException("未连接"))
+        return@withContext try {
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            s.open(remotePath, setOf(net.schmizz.sshj.sftp.OpenMode.CREAT, net.schmizz.sshj.sftp.OpenMode.TRUNC, net.schmizz.sshj.sftp.OpenMode.WRITE)).use { rf ->
+                rf.write(0, bytes, 0, bytes.size)
+            }
+            Result.success(Unit)
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
     suspend fun downloadToDownloads(
         remotePath: String,
         filename: String,
+        context: Context,
         resolver: ContentResolver,
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
     ): String =
         withContext(Dispatchers.IO) {
             val s = sftp ?: return@withContext "未连接"
             val safeName = filename.ifBlank { "download.bin" }
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, safeName)
-                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MyShell")
-            }
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: return@withContext "创建下载文件失败"
+            // Prefer saving into public Downloads via MediaStore (works best on Android 10+).
+            val total = runCatching { s.size(remotePath) }.getOrElse { -1L }
 
-            return@withContext try {
-                val total = try {
-                    s.size(remotePath)
-                } catch (_: Throwable) {
-                    -1L
-                }
+            fun doDownloadToOutput(openOut: () -> java.io.OutputStream): String {
                 val dest = OutputStreamDestFile(
                     name = safeName,
                     length = total,
-                    open = { _ ->
-                        resolver.openOutputStream(uri) ?: throw IllegalStateException("无法写入下载文件")
-                    },
+                    open = { _ -> openOut() },
                     onProgress = { bytes -> onProgress(bytes, total) },
                 )
                 s.get(remotePath, dest)
-                "下载完成：$safeName"
-            } catch (t: Throwable) {
+                return "下载完成：$safeName"
+            }
+
+            // 1) Try MediaStore Downloads.
+            val mediaStoreUri: Uri? = runCatching {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, safeName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                    // RELATIVE_PATH is only honored on Android 10+; some ROMs may throw "not supported".
+                    put(MediaStore.Downloads.RELATIVE_PATH, "Download/MyShell")
+                }
+                resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            }.getOrNull()
+
+            if (mediaStoreUri != null) {
+                val r = runCatching {
+                    doDownloadToOutput {
+                        resolver.openOutputStream(mediaStoreUri) ?: throw IllegalStateException("无法写入下载文件")
+                    }
+                }
+                if (r.isSuccess) return@withContext r.getOrThrow()
                 try {
-                    resolver.delete(uri, null, null)
+                    resolver.delete(mediaStoreUri, null, null)
                 } catch (_: Throwable) {
                 }
-                "下载失败：${t.message ?: t::class.java.simpleName}"
+                Log.w("MyShell-SFTP", "download MediaStore failed: path=$remotePath name=$safeName", r.exceptionOrNull())
+            }
+
+            // 2) Fallback: app-internal downloads directory (always supported).
+            return@withContext runCatching {
+                val dir = File(context.filesDir, "downloads/MyShell").apply { mkdirs() }
+                val outFile = File(dir, safeName)
+                "${doDownloadToOutput { FileOutputStream(outFile) }}（已保存到应用内：${outFile.name}）"
+            }.getOrElse { t ->
+                Log.e("MyShell-SFTP", "download fallback failed: path=$remotePath name=$safeName", t)
+                "下载失败：${t::class.java.simpleName}：${t.message ?: "unknown"}"
             }
         }
 
@@ -218,7 +282,9 @@ class SftpClientManager(
             val s = sftp ?: return@withContext "未连接"
             val dir = remoteDir.ifBlank { "/" }
             val name = queryDisplayName(resolver, uri) ?: "upload.bin"
-            val remotePath = if (dir.endsWith("/")) dir + name else "$dir/$name"
+            fun buildRemotePath(d: String): String = if (d.endsWith("/")) d + name else "$d/$name"
+            val dirCanon = runCatching { s.canonicalize(dir) }.getOrNull() ?: dir
+            val remotePath = buildRemotePath(dirCanon)
             return@withContext try {
                 val total = queryLength(resolver, uri)
                 val src = InputStreamSourceFile(
@@ -230,7 +296,23 @@ class SftpClientManager(
                 s.put(src, remotePath)
                 "上传完成：$remotePath"
             } catch (t: Throwable) {
-                "上传失败：${t.message ?: t::class.java.simpleName}"
+                val msg = (t.message ?: "").trim().ifBlank { t::class.java.simpleName }
+                val code = (t as? SFTPException)?.statusCode
+                val home = runCatching { s.canonicalize(".") }.getOrNull()
+
+                Log.w(
+                    "MyShell-SFTP",
+                    "upload failed: dir=$dir canon=$dirCanon target=$remotePath home=$home type=${t::class.java.simpleName} code=$code msg=$msg",
+                    t,
+                )
+
+                buildString {
+                    append("上传失败：").append(msg)
+                    if (code != null) append("（SFTP code=").append(code).append("）")
+                    append("（目标=").append(remotePath).append("）")
+                    if (!home.isNullOrBlank()) append("（home=").append(home).append("）")
+                    append("。如果你确认目录可写，通常是路径解析/服务端策略导致；请尝试先刷新目录后再上传。")
+                }
             }
         }
 

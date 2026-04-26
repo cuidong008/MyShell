@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.sftp.FileAttributes
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.transport.TransportException
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -126,19 +127,10 @@ class SftpClientManager(
                 .map {
                     val modeOctal = runCatching {
                         val attrs = it.attributes
-                        // Kotlin/Java 下 mode 类型因版本而异，统一用反射更稳；0 表示未提供权限位
-                        val raw = attrs.javaClass.methods
-                            .firstOrNull { m -> m.name == "getMode" && m.parameterCount == 0 }
-                            ?.invoke(attrs)
-                        val v = when (raw) {
-                            is Int -> raw.toLong() and 0xffffffffL
-                            is Long -> raw
-                            is java.lang.Integer -> raw.toLong() and 0xffffffffL
-                            is java.lang.Long -> raw.toLong()
-                            else -> null
-                        } ?: return@runCatching ""
-                        val masked = (v and 0xfffL).toInt()
-                        if (masked == 0) "" else String.format(Locale.US, "%o", masked)
+                        // SSHJ：getMode() 返回 FileMode，不是整数；未带 MODE 位时表示服务端未返回权限
+                        if (!attrs.has(FileAttributes.Flag.MODE)) return@runCatching ""
+                        val perms = attrs.mode.permissionsMask
+                        if (perms == 0) "" else String.format(Locale.US, "%o", perms)
                     }.getOrDefault("")
                     RemoteEntryUi(
                         name = it.name,

@@ -253,7 +253,7 @@ fun FilesScreen(
                                     Text(
                                         buildString {
                                             append(if (e.isDir) "目录" else "文件")
-                                            if (e.modeOctal.isNotBlank() && e.modeOctal != "0") {
+                                            if (e.modeOctal.isNotBlank()) {
                                                 append(" · ").append(e.modeOctal)
                                             }
                                             if (!e.isDir) append(" · ").append(formatHumanFileSize(e.size))
@@ -322,7 +322,7 @@ fun FilesScreen(
                                 CompactIconTap(
                                     onClick = {
                                         pendingChmod = e
-                                        chmodInput = if (e.modeOctal.isBlank() || e.modeOctal == "0") "644" else e.modeOctal
+                                        chmodInput = e.modeOctal.ifBlank { "644" }
                                     },
                                     enabled = true,
                                     icon = Icons.Outlined.Info,
@@ -533,9 +533,7 @@ fun FilesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(e.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        text = "当前（八进制）：${
-                            if (e.modeOctal.isBlank() || e.modeOctal == "0") "未知" else e.modeOctal
-                        }",
+                        text = "当前（八进制）：${e.modeOctal.ifBlank { "未知" }}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     OutlinedTextField(

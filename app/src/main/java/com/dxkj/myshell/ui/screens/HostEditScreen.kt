@@ -1,7 +1,11 @@
 package com.dxkj.myshell.ui.screens
 
 import android.app.Application
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,7 +26,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,8 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.dxkj.myshell.ui.theme.Dimens
@@ -85,7 +94,7 @@ fun HostEditScreen(
     val scrollState = rememberScrollState()
 
     val formTextStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp)
-    val compactFieldMinHeight = 44.dp
+    val compactFieldMinHeight = 30.dp
     val labelWidth = 86.dp
 
     Column(
@@ -98,71 +107,64 @@ fun HostEditScreen(
                 horizontal = Dimens.ScreenPaddingH,
                 vertical = if (isLandscape) 12.dp else Dimens.ScreenPaddingV,
             ),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape) Dimens.SpacingSm else Dimens.SpacingXs),
+        verticalArrangement = Arrangement.spacedBy(Dimens.Spacing1),
     ) {
         Text(
             text = if (hostId == null) "新增主机" else "编辑主机",
             style = MaterialTheme.typography.titleLarge,
         )
 
-        // 行式输入：标签: 输入框
+        // 行式输入：标签: 输入框（ShellBean 式紧凑密度）
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
         ) {
             Text("名称:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-            OutlinedTextField(
+            CompactInputField(
                 value = ui.name,
                 onValueChange = { vm.update { copy(name = it) } },
                 modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
-                singleLine = true,
                 textStyle = formTextStyle,
             )
         }
-        Spacer(Modifier.height(Dimens.Spacing2))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
         ) {
             Text("主机地址:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-            OutlinedTextField(
+            CompactInputField(
                 value = ui.host,
                 onValueChange = { vm.update { copy(host = it) } },
                 modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
-                singleLine = true,
                 textStyle = formTextStyle,
             )
         }
-        Spacer(Modifier.height(Dimens.Spacing2))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
         ) {
             Text("端口:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-            OutlinedTextField(
+            CompactInputField(
                 value = ui.port,
                 onValueChange = { vm.update { copy(port = it) } },
                 modifier = Modifier.width(140.dp).heightIn(min = compactFieldMinHeight),
-                singleLine = true,
                 textStyle = formTextStyle,
             )
             Spacer(Modifier.weight(1f))
         }
-        Spacer(Modifier.height(Dimens.Spacing2))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
         ) {
             Text("用户名:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-            OutlinedTextField(
+            CompactInputField(
                 value = ui.username,
                 onValueChange = { vm.update { copy(username = it) } },
                 modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
-                singleLine = true,
                 textStyle = formTextStyle,
             )
         }
@@ -183,18 +185,16 @@ fun HostEditScreen(
         }
 
         if (ui.authType == "password") {
-        Spacer(Modifier.height(Dimens.Spacing2))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
             ) {
                 Text("密码:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-                OutlinedTextField(
+                CompactInputField(
                     value = ui.password,
                     onValueChange = { vm.update { copy(password = it) } },
                     modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
-                    singleLine = true,
                     textStyle = formTextStyle,
                     visualTransformation = PasswordVisualTransformation(),
                 )
@@ -206,31 +206,36 @@ fun HostEditScreen(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded },
             ) {
-            Spacer(Modifier.height(Dimens.Spacing2))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
                 ) {
                     Text("密钥:", style = formTextStyle, modifier = Modifier.width(labelWidth))
-                    OutlinedTextField(
-                        value = selectedKey?.name ?: if (keys.isEmpty()) "（暂无密钥，请先去「密钥」页导入）" else "请选择密钥",
-                        onValueChange = {},
-                        readOnly = true,
-                        enabled = keys.isNotEmpty() && !ui.saving && !ui.testing,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = compactFieldMinHeight)
-                            .menuAnchor(),
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        textStyle = formTextStyle,
-                        supportingText = {
-                            if (ui.privateKeyId == null) {
-                                Text("密钥认证需要选择一个已导入的私钥", style = MaterialTheme.typography.bodySmall)
-                            }
-                        },
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        CompactInputField(
+                            value = selectedKey?.name
+                                ?: if (keys.isEmpty()) "（暂无密钥，请先去「密钥」页导入）" else "请选择密钥",
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = keys.isNotEmpty() && !ui.saving && !ui.testing,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = compactFieldMinHeight)
+                                .menuAnchor()
+                                .clickable(enabled = keys.isNotEmpty() && !ui.saving && !ui.testing) { expanded = true },
+                            textStyle = formTextStyle,
+                            trailing = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        )
+                        if (ui.privateKeyId == null) {
+                            Text(
+                                "密钥认证需要选择一个已导入的私钥",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                    }
                 }
                 ExposedDropdownMenu(
                     expanded = expanded,
@@ -295,6 +300,51 @@ fun HostEditScreen(
                 enabled = !ui.saving,
             ) {
                 Text(if (ui.saving) "保存中…" else "保存")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    readOnly: Boolean = false,
+    textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val borderColor = if (enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant
+    val bg = if (enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val textColor = MaterialTheme.colorScheme.onSurface
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, borderColor, shape)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            readOnly = readOnly,
+            singleLine = true,
+            textStyle = textStyle.copy(color = textColor),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            visualTransformation = visualTransformation,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = if (trailing != null) 28.dp else 0.dp),
+        )
+        if (trailing != null) {
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                trailing()
             }
         }
     }

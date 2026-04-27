@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Row
@@ -31,9 +30,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -118,30 +114,7 @@ fun AppNav() {
 
     Scaffold(
         topBar = {
-            // ShellBean 风格：在横屏侧边栏布局下不显示“当前选中”顶部标题条
-            // 同时：横屏时顶部标题条会显著占用垂直空间，默认隐藏以获得更多内容高度
-            if (!isTerminalFull && !useRail && !isLandscape) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            when (currentRoute) {
-                                BottomTab.Servers.route -> BottomTab.Servers.label
-                                BottomTab.Overview.route -> BottomTab.Overview.label
-                                BottomTab.Keys.route -> BottomTab.Keys.label
-                                "host_edit?hostId={hostId}" -> "编辑主机"
-                                else -> "MyShell"
-                            },
-                        )
-                    },
-                    navigationIcon = {
-                        if (!showNav) {
-                            IconButton(onClick = { navController.popBackStack() }) {
-                                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "back")
-                            }
-                        }
-                    },
-                )
-            }
+            // 全局顶栏统一隐藏：避免真机/虚拟机在不同尺寸与方向下表现不一致，并把垂直空间留给内容。
         },
         bottomBar = {
             if (showBottomBar) {

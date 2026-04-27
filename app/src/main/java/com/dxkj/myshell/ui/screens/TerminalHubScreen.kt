@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -330,7 +333,21 @@ fun TerminalHubScreen(
                     val t = clipboard.getText()?.text.orEmpty()
                     if (t.isNotBlank()) active.term.write(t)
                 },
+                onToggleKeyBar = { keyBarVisible = false },
             )
+        }
+
+        if (active?.term != null && !keyBarVisible) {
+            FilledTonalIconButton(
+                onClick = { keyBarVisible = true },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
+                    .padding(bottom = 8.dp)
+                    .background(Color(0xAA111111), RoundedCornerShape(14.dp)),
+            ) {
+                Text("快捷键", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            }
         }
 
         if (showHostPicker) {
@@ -441,12 +458,16 @@ private fun HubKeyBar(
     modifier: Modifier = Modifier,
     onKey: (String) -> Unit,
     onPaste: () -> Unit,
+    onToggleKeyBar: () -> Unit,
 ) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        FilledTonalIconButton(onClick = onToggleKeyBar) {
+            Icon(imageVector = Icons.Outlined.KeyboardArrowDown, contentDescription = "hide keybar")
+        }
         FilledTonalIconButton(onClick = { onKey("\u001B") }) { Text("Esc") }
         FilledTonalIconButton(onClick = { onKey("\t") }) { Text("Tab") }
         FilledTonalIconButton(onClick = { onKey("\u007F") }) { Text("⌫") }

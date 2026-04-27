@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,7 +95,8 @@ fun TerminalFullScreen(
     var viewRef by remember { mutableStateOf<EmulatorView?>(null) }
     var fontSize by remember { mutableIntStateOf(prefs.getInt("fontSize_$hostId", 16)) }
     var keyBarVisible by remember { mutableStateOf(prefs.getBoolean("keyBar_$hostId", true)) }
-    var toolbarVisible by remember { mutableStateOf(true) }
+    var toolbarEnabled by remember { mutableStateOf(prefs.getBoolean("toolbar_$hostId", true)) }
+    var toolbarVisible by remember { mutableStateOf(toolbarEnabled) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var schemeId by remember { mutableIntStateOf(prefs.getInt("scheme_$hostId", 0)) }
     var bgAlphaStep by remember { mutableIntStateOf(prefs.getInt("bgAlpha_$hostId", 0)) } // 0..2
@@ -103,7 +105,7 @@ fun TerminalFullScreen(
 
     fun pokeInteraction() {
         lastInteractionMs = System.currentTimeMillis()
-        if (!toolbarVisible) toolbarVisible = true
+        if (toolbarEnabled && !toolbarVisible) toolbarVisible = true
     }
 
     BackHandler {
@@ -116,6 +118,10 @@ fun TerminalFullScreen(
     }
     LaunchedEffect(keyBarVisible) {
         prefs.edit().putBoolean("keyBar_$hostId", keyBarVisible).apply()
+    }
+    LaunchedEffect(toolbarEnabled) {
+        prefs.edit().putBoolean("toolbar_$hostId", toolbarEnabled).apply()
+        if (!toolbarEnabled) toolbarVisible = false
     }
     LaunchedEffect(schemeId) {
         prefs.edit().putInt("scheme_$hostId", schemeId).apply()
@@ -291,7 +297,7 @@ fun TerminalFullScreen(
             if (ui.session != null && keyBarVisible) {
                 TerminalKeyBar(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
                         .background(Color(0xCC000000))
                         .systemBarsPadding()
                         .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -304,7 +310,28 @@ fun TerminalFullScreen(
                         val text = clipboard.getText()?.text.orEmpty()
                         if (text.isNotBlank()) ui.session?.write(text)
                     },
+                    toolbarEnabled = toolbarEnabled,
+                    onToggleToolbar = {
+                        toolbarEnabled = !toolbarEnabled
+                    },
+                    onToggleKeyBar = {
+                        keyBarVisible = false
+                    },
                 )
+            }
+        }
+
+        // 快捷键栏收起后的“把手”，方便在手机上恢复（即使悬浮工具条被关了也能再打开）
+        if (ui.session != null && !keyBarVisible) {
+            FilledTonalIconButton(
+                onClick = { keyBarVisible = true },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .systemBarsPadding()
+                    .padding(bottom = 8.dp)
+                    .background(Color(0xAA111111), RoundedCornerShape(14.dp)),
+            ) {
+                Text("快捷键", color = Color.White, style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -324,7 +351,7 @@ fun TerminalFullScreen(
         }
 
         // 悬浮工具条（接近 ShellBean：不占用顶部/底部栏，随时可操作）
-        if (toolbarVisible) {
+        if (toolbarEnabled && toolbarVisible) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -416,6 +443,16 @@ fun TerminalFullScreen(
 
                 FilledTonalIconButton(
                     onClick = {
+                        // 彻底隐藏：后续点击屏幕也不会再自动弹出（除非重新打开开关）
+                        toolbarEnabled = false
+                    },
+                    enabled = true,
+                ) {
+                    Text("隐藏", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                }
+
+                FilledTonalIconButton(
+                    onClick = {
                         pokeInteraction()
                         viewRef?.toggleSelectingText()
                     },
@@ -494,12 +531,16 @@ private fun TerminalKeyBar(
     modifier: Modifier = Modifier,
     onKey: (String) -> Unit,
     onPaste: () -> Unit,
+    toolbarEnabled: Boolean,
+    onToggleToolbar: () -> Unit,
+    onToggleKeyBar: () -> Unit,
 ) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        FilledTonalIconButton(onClick = onToggleKeyBar) { Text("收起") }
         FilledTonalIconButton(onClick = { onKey("\u001B") }) { Text("Esc") }
         FilledTonalIconButton(onClick = { onKey("\t") }) { Text("Tab") }
         FilledTonalIconButton(onClick = { onKey("\u007F") }) { Text("⌫") }
@@ -510,6 +551,9 @@ private fun TerminalKeyBar(
         FilledTonalIconButton(onClick = { onKey("\u001B[D") }) { Text("←") }
         FilledTonalIconButton(onClick = { onKey("\u001B[C") }) { Text("→") }
         FilledTonalIconButton(onClick = onPaste) { Text("粘贴") }
+        FilledTonalIconButton(onClick = onToggleToolbar) {
+            Text(if (toolbarEnabled) "工具" else "工具关")
+        }
     }
 }
 

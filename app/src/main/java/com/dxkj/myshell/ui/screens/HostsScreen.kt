@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -86,7 +87,10 @@ fun HostsScreen(
                 onValueChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = if (isLandscape) 8.dp else 12.dp),
+                    .padding(
+                        horizontal = Dimens.ScreenPaddingH,
+                        vertical = if (isLandscape) Dimens.SpacingSm else Dimens.SpacingMd,
+                    ),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "search") },
                 label = { Text("搜索主机") },
@@ -96,8 +100,8 @@ fun HostsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    .padding(Dimens.ScreenPaddingH),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(text = "还没有主机", style = MaterialTheme.typography.titleLarge)
@@ -107,8 +111,8 @@ fun HostsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = Dimens.SpacingMd, vertical = Dimens.SpacingSm),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
             ) {
                 items(filtered, key = { it.id }) { item ->
                     HostRow(
@@ -126,7 +130,7 @@ fun HostsScreen(
             onClick = onAddHost,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp),
+                .padding(Dimens.ScreenPaddingH),
         ) {
             Icon(imageVector = Icons.Outlined.Add, contentDescription = "add")
         }

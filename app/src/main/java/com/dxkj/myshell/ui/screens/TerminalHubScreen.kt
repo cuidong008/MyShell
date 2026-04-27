@@ -68,6 +68,7 @@ import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.terminal.SafeEmulatorView
 import com.dxkj.myshell.terminal.TerminalSessionPool
+import com.dxkj.myshell.ui.theme.Dimens
 import jackpal.androidterm.emulatorview.ColorScheme
 import jackpal.androidterm.emulatorview.EmulatorView
 import kotlinx.coroutines.flow.map
@@ -302,7 +303,7 @@ fun TerminalHubScreen(
         } else {
             Text(
                 text = active?.status ?: if (sessions.isEmpty()) "暂无会话，点击 + 新建" else "连接中…",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -313,13 +314,16 @@ fun TerminalHubScreen(
         if (active != null && !active.status.isNullOrBlank() && (active.connecting || !active.connected)) {
             Text(
                 text = active.status ?: "",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
-                    .background(Color(0xAA111111), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(bottom = if (keyBarVisible) Dimens.TerminalKeyBarHeight else Dimens.OverlayPaddingH)
+                    .background(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        RoundedCornerShape(Dimens.OverlayCornerSm),
+                    )
+                    .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
             )
         }
 
@@ -328,8 +332,8 @@ fun TerminalHubScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .background(Color(0xCC000000))
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f))
+                    .padding(horizontal = Dimens.SpacingSm, vertical = Dimens.SpacingSm),
                 onKey = { seq -> active.term.write(seq) },
                 onPaste = {
                     val t = clipboard.getText()?.text.orEmpty()
@@ -345,10 +349,13 @@ fun TerminalHubScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = 8.dp)
-                    .background(Color(0xAA111111), RoundedCornerShape(14.dp)),
+                    .padding(bottom = Dimens.SpacingSm)
+                    .background(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        RoundedCornerShape(Dimens.OverlayCorner),
+                    ),
             ) {
-                Text("快捷键", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Text("快捷键", color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -396,13 +403,16 @@ fun TerminalHubScreen(
             // 轻提示：避免引入 SnackbarHost/Scaffold 改动过大
             Text(
                 text = copyHintText,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
-                    .background(Color(0xAA111111), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(bottom = if (keyBarVisible) Dimens.TerminalKeyBarHeight else Dimens.OverlayPaddingH)
+                    .background(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        RoundedCornerShape(Dimens.OverlayCornerSm),
+                    )
+                    .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
             )
             LaunchedEffect(Unit) {
                 kotlinx.coroutines.delay(1200)

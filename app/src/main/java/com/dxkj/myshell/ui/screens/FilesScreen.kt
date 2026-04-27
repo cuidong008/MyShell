@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -172,13 +173,16 @@ fun FilesScreen(
         if (ui.status != null) {
             Text(
                 text = ui.status ?: "",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = if (isLandscape) 3.dp else 4.dp),
+                modifier = Modifier.padding(
+                    horizontal = Dimens.ScreenPaddingH,
+                    vertical = if (isLandscape) 3.dp else 4.dp,
+                ),
                 color = if (ui.statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         if (ui.progressActive) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Column(modifier = Modifier.padding(horizontal = Dimens.ScreenPaddingH)) {
                 if (ui.progressValue != null) {
                     LinearProgressIndicator(progress = { ui.progressValue ?: 0f }, modifier = Modifier.fillMaxWidth())
                 } else {
@@ -205,8 +209,11 @@ fun FilesScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = if (isLandscape) 4.dp else 6.dp)
-                    .simpleVerticalScrollbar(listState),
+                    .padding(horizontal = Dimens.SpacingMd, vertical = if (isLandscape) 4.dp else 6.dp)
+                    .simpleVerticalScrollbar(
+                        listState,
+                        thumbColor = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.40f),
+                    ),
                 verticalArrangement = Arrangement.spacedBy(if (isLandscape) 3.dp else 4.dp),
             ) {
                 items(displayEntries, key = { it.path }) { e ->
@@ -218,7 +225,7 @@ fun FilesScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp, horizontal = 6.dp),
+                                .padding(vertical = Dimens.Spacing2, horizontal = Dimens.SpacingXs),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Row(
@@ -243,7 +250,7 @@ fun FilesScreen(
                                         }
                                     },
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingXs),
                             ) {
                                 Icon(
                                     imageVector = if (e.isDir) Icons.Outlined.Folder else Icons.Outlined.Description,
@@ -269,7 +276,7 @@ fun FilesScreen(
                             Row(
                                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(Dimens.Spacing1),
                             ) {
                                 CompactIconTap(
                                     onClick = {
@@ -361,9 +368,9 @@ fun FilesScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(vertical = 3.dp, horizontal = 2.dp),
+                        .padding(vertical = Dimens.Spacing2, horizontal = Dimens.Spacing1),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.Spacing1),
                 ) {
                     val dBox = 28.dp
                     val dIcon = 17.dp
@@ -381,7 +388,7 @@ fun FilesScreen(
                     )
                     Box(
                         modifier = Modifier
-                            .padding(horizontal = 4.dp)
+                            .padding(horizontal = Dimens.Spacing2)
                             .width(1.dp)
                             .height(18.dp)
                             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
@@ -390,7 +397,7 @@ fun FilesScreen(
                         currentPath = ui.currentPath,
                         enabled = !ui.loading,
                         onNavigate = { vm.list(it) },
-                        modifier = Modifier.padding(start = 2.dp, end = 4.dp),
+                        modifier = Modifier.padding(start = Dimens.Spacing1, end = Dimens.Spacing2),
                     )
                 }
             }
@@ -402,12 +409,15 @@ fun FilesScreen(
             onDismissRequest = { showMkdir = false },
             title = { Text("新建目录") },
             text = {
-                OutlinedTextField(
-                    value = mkdirName,
-                    onValueChange = { mkdirName = it },
-                    label = { Text("目录名") },
-                    singleLine = true,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
+                    OutlinedTextField(
+                        value = mkdirName,
+                        onValueChange = { mkdirName = it },
+                        label = { Text("目录名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -448,12 +458,15 @@ fun FilesScreen(
             onDismissRequest = { pendingRename = null },
             title = { Text("重命名") },
             text = {
-                OutlinedTextField(
-                    value = renameTo,
-                    onValueChange = { renameTo = it },
-                    label = { Text("新名称") },
-                    singleLine = true,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
+                    OutlinedTextField(
+                        value = renameTo,
+                        onValueChange = { renameTo = it },
+                        label = { Text("新名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -506,12 +519,15 @@ fun FilesScreen(
             onDismissRequest = { showNewFileDialog = false },
             title = { Text("新建文件") },
             text = {
-                OutlinedTextField(
-                    value = newFileName,
-                    onValueChange = { newFileName = it },
-                    label = { Text("文件名") },
-                    singleLine = true,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
+                    OutlinedTextField(
+                        value = newFileName,
+                        onValueChange = { newFileName = it },
+                        label = { Text("文件名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -533,7 +549,7 @@ fun FilesScreen(
             onDismissRequest = { pendingChmod = null },
             title = { Text("文件权限") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
                     Text(e.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         text = "当前（八进制）：${e.modeOctal.ifBlank { "未知" }}",
@@ -545,6 +561,7 @@ fun FilesScreen(
                         label = { Text("新权限（八进制）") },
                         singleLine = true,
                         placeholder = { Text("例如 644 或 0755") },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             },
@@ -675,6 +692,7 @@ private fun trimFrac(s: String): String {
 
 private fun Modifier.simpleVerticalScrollbar(
     state: androidx.compose.foundation.lazy.LazyListState,
+    thumbColor: androidx.compose.ui.graphics.Color,
     thickness: Int = 4,
     paddingEnd: Int = 2,
 ): Modifier {
@@ -694,7 +712,7 @@ private fun Modifier.simpleVerticalScrollbar(
 
         val x = size.width - paddingEnd - thickness
         drawRoundRect(
-            color = androidx.compose.ui.graphics.Color(0x66FFFFFF),
+            color = thumbColor,
             topLeft = Offset(x.toFloat(), thumbOffset),
             size = Size(thickness.toFloat(), thumbHeight),
             cornerRadius = CornerRadius(thickness.toFloat(), thickness.toFloat()),

@@ -81,6 +81,7 @@ import com.dxkj.myshell.terminal.SessionState
 import com.dxkj.myshell.terminal.SafeEmulatorView
 import jackpal.androidterm.emulatorview.EmulatorView
 import androidx.compose.ui.viewinterop.AndroidView
+import com.dxkj.myshell.ui.theme.Dimens
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -199,7 +200,7 @@ fun AppNav() {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .statusBarsPadding()
-                                    .padding(10.dp),
+                                    .padding(Dimens.SidebarPadding),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 // 顶部：折叠按钮（参考 ShellBean iPad）

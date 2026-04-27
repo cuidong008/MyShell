@@ -34,7 +34,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
+import com.dxkj.myshell.ui.theme.Dimens
 import com.dxkj.myshell.terminal.TerminalSessionPool
 
 private enum class SessionPane { Terminal, Files, PortForward }
@@ -104,10 +104,13 @@ fun SessionsScreen(
                     .align(Alignment.CenterEnd)
                     .navigationBarsPadding()
                     .imePadding()
-                    .padding(end = 8.dp)
-                    .background(Color(0xCC111111), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .padding(end = Dimens.SpacingSm)
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                        RoundedCornerShape(Dimens.OverlayCorner),
+                    )
+                    .padding(horizontal = Dimens.SpacingXs, vertical = Dimens.SpacingXs),
+                verticalArrangement = Arrangement.spacedBy(Dimens.Spacing1),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 IconButton(

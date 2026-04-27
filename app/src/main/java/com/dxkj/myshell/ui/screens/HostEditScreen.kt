@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -84,8 +85,11 @@ fun HostEditScreen(
             .padding(contentPadding)
             .imePadding()
             .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = if (isLandscape) 12.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
+            .padding(
+                horizontal = Dimens.ScreenPaddingH,
+                vertical = if (isLandscape) 12.dp else Dimens.ScreenPaddingV,
+            ),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else Dimens.SpacingMd),
     ) {
         Text(
             text = if (hostId == null) "新增主机" else "编辑主机",
@@ -98,6 +102,7 @@ fun HostEditScreen(
             label = { Text("名称") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
         OutlinedTextField(
             value = ui.host,
@@ -105,6 +110,7 @@ fun HostEditScreen(
             label = { Text("主机地址") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
         OutlinedTextField(
             value = ui.port,
@@ -112,6 +118,7 @@ fun HostEditScreen(
             label = { Text("端口") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
         OutlinedTextField(
             value = ui.username,
@@ -119,6 +126,7 @@ fun HostEditScreen(
             label = { Text("用户名") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
 
         Text(text = "认证方式", style = MaterialTheme.typography.titleMedium)
@@ -127,13 +135,13 @@ fun HostEditScreen(
                 selected = ui.authType == "password",
                 onClick = { vm.update { copy(authType = "password") } },
             )
-            Text("密码")
+            Text("密码", style = MaterialTheme.typography.bodyMedium)
             RadioButton(
                 selected = ui.authType == "key",
                 onClick = { vm.update { copy(authType = "key") } },
-                modifier = Modifier.padding(start = 16.dp),
+                modifier = Modifier.padding(start = Dimens.SpacingLg),
             )
-            Text("密钥")
+            Text("密钥", style = MaterialTheme.typography.bodyMedium)
         }
 
         if (ui.authType == "password") {
@@ -143,6 +151,7 @@ fun HostEditScreen(
                 label = { Text("密码") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
                 visualTransformation = PasswordVisualTransformation(),
             )
         } else {
@@ -163,9 +172,10 @@ fun HostEditScreen(
                         .menuAnchor(),
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     supportingText = {
                         if (ui.privateKeyId == null) {
-                            Text("密钥认证需要选择一个已导入的私钥")
+                            Text("密钥认证需要选择一个已导入的私钥", style = MaterialTheme.typography.bodySmall)
                         }
                     },
                 )
@@ -188,7 +198,7 @@ fun HostEditScreen(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (ui.testing) {
@@ -203,18 +213,23 @@ fun HostEditScreen(
         }
 
         if (ui.error != null) {
-            Text(text = ui.error ?: "", color = MaterialTheme.colorScheme.error)
+            Text(
+                text = ui.error ?: "",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         if (ui.testResult != null) {
             Text(
                 text = ui.testResult ?: "",
                 color = if (ui.testResultOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.End),
         ) {
             Button(
                 onClick = { onDone() },

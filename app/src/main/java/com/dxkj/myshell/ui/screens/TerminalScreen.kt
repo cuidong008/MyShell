@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -74,8 +75,11 @@ fun TerminalScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = if (isLandscape) 12.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
+            .padding(
+                horizontal = Dimens.ScreenPaddingH,
+                vertical = if (isLandscape) 12.dp else Dimens.ScreenPaddingV,
+            ),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else Dimens.SpacingMd),
     ) {
         Text(text = "终端", style = MaterialTheme.typography.titleLarge)
 
@@ -88,13 +92,13 @@ fun TerminalScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(vertical = Dimens.Spacing2),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpacingXs),
         ) {
             items(hosts, key = { it.id }) { h ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm, Alignment.Start),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
@@ -110,7 +114,7 @@ fun TerminalScreen(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingMd)) {
             Button(
                 onClick = {
                     val id = selectedHostId ?: return@Button
@@ -136,13 +140,13 @@ fun TerminalScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(vertical = Dimens.Spacing2),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpacingXs),
             ) {
                 items(recentHosts, key = { it.id }) { h ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                        horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm, Alignment.Start),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Button(onClick = { onOpenFullTerminal(h.id) }) { Text("打开") }

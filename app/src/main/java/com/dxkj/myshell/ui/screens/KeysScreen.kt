@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -92,8 +93,8 @@ fun KeysScreen(contentPadding: PaddingValues) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    .padding(Dimens.ScreenPaddingH),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(text = "还没有密钥", style = MaterialTheme.typography.titleLarge)
@@ -106,14 +107,14 @@ fun KeysScreen(contentPadding: PaddingValues) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = Dimens.SpacingMd, vertical = Dimens.SpacingSm),
+                verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
             ) {
                 items(keys, key = { it.id }) { item ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = if (isLandscape) 8.dp else 10.dp),
+                            .padding(horizontal = Dimens.SpacingMd, vertical = if (isLandscape) Dimens.SpacingSm else 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -136,7 +137,7 @@ fun KeysScreen(contentPadding: PaddingValues) {
             onClick = { picker.launch(arrayOf("*/*")) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp),
+                .padding(Dimens.ScreenPaddingH),
         ) {
             Icon(imageVector = Icons.Outlined.Add, contentDescription = "import")
         }
@@ -165,7 +166,7 @@ fun KeysScreen(contentPadding: PaddingValues) {
             onDismissRequest = { showImportDialog = false },
             title = { Text("导入私钥") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
                     OutlinedTextField(
                         value = importedName,
                         onValueChange = { importedName = it },

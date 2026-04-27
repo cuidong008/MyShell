@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.dxkj.myshell.ui.theme.Dimens
 import com.dxkj.myshell.ssh.DiscoveredListen
 import com.dxkj.myshell.ssh.PortForwardItem
 import com.dxkj.myshell.terminal.HostPortForwardUi
@@ -153,8 +154,8 @@ fun PortForwardScreen(
             Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 8.dp),
+                .padding(horizontal = Dimens.ScreenPaddingH),
+            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else Dimens.SpacingSm),
         ) {
             if (statusText != null) {
                 item {
@@ -162,7 +163,7 @@ fun PortForwardScreen(
                         text = statusText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = if (isLandscape) 8.dp else 12.dp),
+                        modifier = Modifier.padding(vertical = if (isLandscape) Dimens.SpacingSm else Dimens.SpacingMd),
                     )
                 }
             } else {
@@ -314,7 +315,7 @@ fun PortForwardScreen(
             onDismissRequest = { showAdd = false },
             title = { Text("手动添加转发") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
                     OutlinedTextField(
                         value = remotePortText,
                         onValueChange = { remotePortText = it.filter { ch -> ch.isDigit() } },
@@ -389,7 +390,7 @@ fun PortForwardScreen(
             onDismissRequest = { editTarget = null },
             title = { Text("修改本机端口") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm)) {
                     if (!canEdit) {
                         Text(
                             "该转发所属会话已断开，请先连接对应标签后再改端口。",

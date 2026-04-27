@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dxkj.myshell.ssh.LinuxHostMetricsSnapshot
 import com.dxkj.myshell.ssh.RemoteLinuxMetrics
+import com.dxkj.myshell.ui.theme.Dimens
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,8 +50,8 @@ fun OverviewScreen(contentPadding: PaddingValues) {
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
+            .padding(horizontal = Dimens.ScreenPaddingH),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else Dimens.SpacingMd),
     ) {
         item {
             Row(
@@ -78,9 +79,9 @@ fun OverviewScreen(contentPadding: PaddingValues) {
         if (hosts.isEmpty()) {
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(Dimens.CardPadding)) {
                         Text("暂无已连接主机", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(Dimens.SpacingXs))
                         Text(
                             "请先在「服务器」打开会话并等待连接成功；概览会每 5 秒自动拉取一次负载、内存、根分区与进程快照。",
                             style = MaterialTheme.typography.bodyMedium,
@@ -96,7 +97,10 @@ fun OverviewScreen(contentPadding: PaddingValues) {
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(Dimens.CardPadding),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+                ) {
                     Text("传输", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "后续可在此聚合后台上传/下载队列与完成提示。",
@@ -106,7 +110,7 @@ fun OverviewScreen(contentPadding: PaddingValues) {
                 }
             }
         }
-        item { Spacer(Modifier.height(24.dp)) }
+        item { Spacer(Modifier.height(Dimens.SpacingXl)) }
     }
 }
 
@@ -117,7 +121,10 @@ private fun HostMonitorCard(card: OverviewHostMonitorCardUi) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(Dimens.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(card.title, style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -183,7 +190,7 @@ private fun MetricBlock(m: LinuxHostMetricsSnapshot) {
         style = MaterialTheme.typography.bodyMedium,
     )
     if (m.processLines.isNotEmpty()) {
-        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+        HorizontalDivider(Modifier.padding(vertical = Dimens.SpacingXs))
         Text("CPU 占用偏高进程（快照）", style = MaterialTheme.typography.labelLarge)
         m.processLines.forEach { line ->
             Text(

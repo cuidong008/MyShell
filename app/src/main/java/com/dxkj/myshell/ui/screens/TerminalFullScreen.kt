@@ -68,6 +68,7 @@ import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.ssh.SshSessionManager
 import com.dxkj.myshell.terminal.SafeEmulatorView
+import com.dxkj.myshell.ui.theme.Dimens
 import jackpal.androidterm.emulatorview.ColorScheme
 import jackpal.androidterm.emulatorview.EmulatorView
 import jackpal.androidterm.emulatorview.TermSession
@@ -290,7 +291,7 @@ fun TerminalFullScreen(
                 } else {
                     Text(
                         text = ui.status ?: "连接中…",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }
@@ -300,9 +301,9 @@ fun TerminalFullScreen(
                 TerminalKeyBar(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xCC000000))
+                        .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f))
                         .systemBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                        .padding(horizontal = Dimens.SpacingSm, vertical = Dimens.SpacingSm),
                     onKey = { seq ->
                         pokeInteraction()
                         ui.session?.write(seq)
@@ -330,10 +331,13 @@ fun TerminalFullScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .systemBarsPadding()
-                    .padding(bottom = 8.dp)
-                    .background(Color(0xAA111111), RoundedCornerShape(14.dp)),
+                    .padding(bottom = Dimens.SpacingSm)
+                    .background(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        RoundedCornerShape(Dimens.OverlayCorner),
+                    ),
             ) {
-                Text("快捷键", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Text("快捷键", color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelSmall)
             }
         }
 
@@ -341,13 +345,16 @@ fun TerminalFullScreen(
         if (!ui.status.isNullOrBlank() && (ui.connecting || !ui.connected)) {
             Text(
                 text = ui.status ?: "",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .systemBarsPadding()
-                    .padding(bottom = if (keyBarVisible) 56.dp else 12.dp)
-                    .background(Color(0xAA111111), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(bottom = if (keyBarVisible) Dimens.TerminalKeyBarHeight else Dimens.OverlayPaddingH)
+                    .background(
+                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        RoundedCornerShape(Dimens.OverlayCornerSm),
+                    )
+                    .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
                 style = MaterialTheme.typography.labelLarge,
             )
         }
@@ -358,13 +365,13 @@ fun TerminalFullScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .systemBarsPadding()
-                    .padding(top = 8.dp)
+                    .padding(top = Dimens.SpacingSm)
                     .background(
-                        color = Color(0xAA111111),
-                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                        shape = RoundedCornerShape(Dimens.OverlayCorner),
                     )
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(horizontal = Dimens.OverlayChipPaddingH, vertical = Dimens.OverlayChipPaddingV),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.OverlayGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FilledTonalIconButton(onClick = {
@@ -377,7 +384,7 @@ fun TerminalFullScreen(
 
                 Text(
                     text = ui.title ?: "终端",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
@@ -405,7 +412,7 @@ fun TerminalFullScreen(
                             1 -> "半透"
                             else -> "更透"
                         },
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
                     )
                 }
 
@@ -428,7 +435,7 @@ fun TerminalFullScreen(
                 ) {
                     Text(
                         text = if (ui.autoReconnect) "自重连" else "不重连",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
@@ -450,7 +457,7 @@ fun TerminalFullScreen(
                     },
                     enabled = true,
                 ) {
-                    Text("隐藏", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    Text("隐藏", color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelSmall)
                 }
 
                 FilledTonalIconButton(

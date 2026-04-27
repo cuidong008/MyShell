@@ -484,10 +484,6 @@ object TerminalSessionPool {
             term.reset()
         } catch (_: Throwable) {
         }
-        // 某些服务端会在登录后立刻发起设备属性(DA)握手；若远端处于 ECHO 开启状态，可能把控制序列回应回显成 "1;2c"。
-        // 这里在会话建立后主动关闭远端回显，减少“控制序列当作普通字符显示”的概率。
-        // （不影响 vim/top 等全屏程序，它们本来就会切换 raw/noecho。）
-        term.write("stty -echo\n")
         term.setFinishCallback(object : TermSession.FinishCallback {
             override fun onSessionFinish(s: TermSession) {
                 scope.launch {

@@ -78,6 +78,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
+private fun readIntFieldNoThrow(obj: Any, fieldName: String): Int? {
+    return try {
+        var cls: Class<*>? = obj::class.java
+        while (cls != null) {
+            try {
+                val f = cls.getDeclaredField(fieldName)
+                f.isAccessible = true
+                return (f.get(obj) as? Int)
+            } catch (_: NoSuchFieldException) {
+                cls = cls.superclass
+            }
+        }
+        null
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private fun getLineHeightPxNoThrow(view: View): Int {
+    val h = readIntFieldNoThrow(view, "mCharacterHeight")
+        ?: readIntFieldNoThrow(view, "mCharHeight")
+        ?: readIntFieldNoThrow(view, "mFontHeight")
+    return (h ?: 0).coerceAtLeast(0)
+}
+
 @Composable
 fun TerminalFullScreen(
     hostId: Long,
@@ -254,6 +279,15 @@ fun TerminalFullScreen(
                                                             try {
                                                                 toggleSelectingText()
                                                                 selectingText = true
+                                                                // 关键：进入选择模式时用按下点作为选区锚点，
+                                                                // 否则会出现“从最开始选/起点错一行”。
+                                                                val anchor = MotionEvent.obtain(ev)
+                                                                anchor.action = MotionEvent.ACTION_DOWN
+                                                                val lineH = getLineHeightPxNoThrow(v)
+                                                                val correctedY = if (lineH > 0) (downY + 2f * lineH) else downY
+                                                                anchor.setLocation(downX, correctedY.coerceAtLeast(0f))
+                                                                v.onTouchEvent(anchor)
+                                                                anchor.recycle()
                                                             } catch (_: Throwable) {
                                                             }
                                                         }
@@ -272,6 +306,17 @@ fun TerminalFullScreen(
                                                     dragging = false
                                                 }
                                             }
+                                        }
+                                    }
+                                    // 鼠标选区在部分设备上会整体“偏下 2 行”，这里对选择态事件做一次 y 修正。
+                                    if (isMouse && selectingText) {
+                                        val lineH = getLineHeightPxNoThrow(v)
+                                        if (lineH > 0) {
+                                            val adj = MotionEvent.obtain(ev)
+                                            adj.setLocation(ev.x, (ev.y + 2f * lineH).coerceAtLeast(0f))
+                                            val handled = v.onTouchEvent(adj)
+                                            adj.recycle()
+                                            return@setOnTouchListener handled
                                         }
                                     }
                                     v.onTouchEvent(ev)

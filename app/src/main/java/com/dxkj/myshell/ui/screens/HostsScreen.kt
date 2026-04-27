@@ -16,13 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -65,15 +62,6 @@ fun HostsScreen(
         factory = HostsViewModel.factory(context.applicationContext as Application),
     )
     val hosts by vm.hosts.collectAsState()
-    var query by remember { mutableStateOf("") }
-    val filtered = remember(hosts, query) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) hosts else hosts.filter {
-            it.name.lowercase().contains(q) ||
-                it.host.lowercase().contains(q) ||
-                it.username.lowercase().contains(q)
-        }
-    }
 
     var pendingDelete by remember { mutableStateOf<HostEntity?>(null) }
 
@@ -83,23 +71,6 @@ fun HostsScreen(
             .padding(contentPadding),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = Dimens.ScreenPaddingH,
-                        vertical = if (isLandscape) Dimens.SpacingSm else Dimens.SpacingMd,
-                    )
-                    // 默认 OutlinedTextField 会偏高（56dp），这里压到更协调的密度
-                    .heightIn(min = 48.dp),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "search") },
-                label = { Text("搜索主机") },
-                textStyle = MaterialTheme.typography.bodyMedium,
-            )
-
             if (hosts.isEmpty()) {
             Column(
                 modifier = Modifier
@@ -118,7 +89,7 @@ fun HostsScreen(
                     .padding(horizontal = Dimens.SpacingMd, vertical = Dimens.SpacingSm),
                 verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
             ) {
-                items(filtered, key = { it.id }) { item ->
+                items(hosts, key = { it.id }) { item ->
                     HostRow(
                         host = item,
                         onClick = { onOpenSession(item.id) },

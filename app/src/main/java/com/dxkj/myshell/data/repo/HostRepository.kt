@@ -33,7 +33,7 @@ class HostRepository(
         require(cleanUsername.isNotEmpty()) { "username required" }
         require(authType == "password" || authType == "key") { "authType invalid" }
         if (authType == "password") require(!password.isNullOrBlank()) { "password required" }
-        // key auth: privateKeyId is optional for now; we will enforce once key UI is fully wired.
+        if (authType == "key") require(privateKeyId != null) { "privateKeyId required" }
 
         val passwordEnc = if (authType == "password") CryptoManager.encryptToBase64(password!!) else null
 

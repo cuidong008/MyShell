@@ -4,6 +4,8 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.TransportException
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.UserAuthException
+import net.schmizz.sshj.userauth.password.PasswordFinder
+import net.schmizz.sshj.userauth.password.Resource
 import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
@@ -15,6 +17,8 @@ data class SshTestInput(
     val username: String,
     val authType: String, // "password" | "key"
     val password: String?,
+    val privateKeyPem: String? = null,
+    val passphrase: String? = null,
 )
 
 sealed class SshTestResult {
@@ -24,8 +28,6 @@ sealed class SshTestResult {
 
 object SshTestClient {
     /**
-     * MVP: only supports password auth.
-     *
      * Security note: currently uses PromiscuousVerifier (trust all host keys).
      * Next step: implement known_hosts / fingerprint verification UI and storage.
      */
@@ -36,11 +38,13 @@ object SshTestClient {
         if (username.isEmpty()) return SshTestResult.Failure("用户名不能为空")
         if (input.port !in 1..65535) return SshTestResult.Failure("端口不合法")
 
-        if (input.authType != "password") {
-            return SshTestResult.Failure("当前仅支持密码认证（密钥认证下一步实现）")
+        if (input.authType != "password" && input.authType != "key") {
+            return SshTestResult.Failure("认证方式不支持：${input.authType}")
         }
-        val password = input.password
-        if (password.isNullOrBlank()) return SshTestResult.Failure("密码不能为空")
+        val password = input.password?.takeIf { it.isNotBlank() }
+        val privateKeyPem = input.privateKeyPem?.takeIf { it.isNotBlank() }
+        if (input.authType == "password" && password == null) return SshTestResult.Failure("密码不能为空")
+        if (input.authType == "key" && privateKeyPem == null) return SshTestResult.Failure("私钥不能为空")
 
         val client = SSHClient(SshCompatConfig.create())
         return try {
@@ -53,7 +57,19 @@ object SshTestClient {
                 return SshTestResult.Failure(formatFailure(stage = "TCP/握手", t = t))
             }
             try {
-                client.authPassword(username, password)
+                when (input.authType) {
+                    "password" -> client.authPassword(username, password!!)
+                    "key" -> {
+                        val finder = object : PasswordFinder {
+                            override fun reqPassword(resource: Resource<*>): CharArray =
+                                input.passphrase?.toCharArray() ?: charArrayOf()
+
+                            override fun shouldRetry(resource: Resource<*>): Boolean = false
+                        }
+                        val kp = client.loadKeys(privateKeyPem!!, null, finder)
+                        client.authPublickey(username, kp)
+                    }
+                }
             } catch (t: Throwable) {
                 return SshTestResult.Failure(formatFailure(stage = "认证", t = t))
             }
@@ -81,7 +97,7 @@ object SshTestClient {
             is ConnectException -> "（无法建立 TCP 连接：端口不通/被防火墙拦截/地址不对）"
             is SocketTimeoutException -> "（连接超时：网络不通或被丢包）"
             is SocketException -> "（底层 Socket 错误：常见于服务器主动断开/Connection reset）"
-            is UserAuthException -> "（认证失败：用户名/密码不对，或服务器禁用密码登录）"
+            is UserAuthException -> "（认证失败：密码/密钥不对，或服务器禁用该认证方式）"
             is TransportException -> "（传输层错误：常见于算法不兼容/握手被服务器断开）"
             else -> ""
         }

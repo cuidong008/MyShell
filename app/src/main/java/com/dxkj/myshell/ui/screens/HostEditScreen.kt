@@ -13,7 +13,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -22,6 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -34,10 +40,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
+import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.crypto.CryptoManager
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
@@ -47,6 +56,7 @@ import com.dxkj.myshell.ssh.SshTestResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostEditScreen(
     contentPadding: PaddingValues,
@@ -65,6 +75,7 @@ fun HostEditScreen(
     }
 
     val ui by vm.ui.collectAsState()
+    val keys by vm.keys.collectAsState()
     val scrollState = rememberScrollState()
 
     Column(
@@ -122,7 +133,7 @@ fun HostEditScreen(
                 onClick = { vm.update { copy(authType = "key") } },
                 modifier = Modifier.padding(start = 16.dp),
             )
-            Text("密钥（下一步实现）")
+            Text("密钥")
         }
 
         if (ui.authType == "password") {
@@ -135,10 +146,44 @@ fun HostEditScreen(
                 visualTransformation = PasswordVisualTransformation(),
             )
         } else {
-            Text(
-                text = "密钥认证：后续会在「密钥」页创建/导入私钥后，在这里选择。",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            var expanded by remember { mutableStateOf(false) }
+            val selectedKey = keys.firstOrNull { it.id == ui.privateKeyId }
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+            ) {
+                OutlinedTextField(
+                    value = selectedKey?.name ?: if (keys.isEmpty()) "（暂无密钥，请先去「密钥」页导入）" else "请选择密钥",
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = keys.isNotEmpty() && !ui.saving && !ui.testing,
+                    label = { Text("密钥") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    supportingText = {
+                        if (ui.privateKeyId == null) {
+                            Text("密钥认证需要选择一个已导入的私钥")
+                        }
+                    },
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                ) {
+                    keys.forEach { k ->
+                        DropdownMenuItem(
+                            text = { Text(k.name) },
+                            onClick = {
+                                vm.update { copy(privateKeyId = k.id) }
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         Row(
@@ -194,6 +239,7 @@ data class HostEditUi(
     val username: String = "",
     val authType: String = "password",
     val password: String = "",
+    val privateKeyId: Long? = null,
     val error: String? = null,
     val testing: Boolean = false,
     val testResult: String? = null,
@@ -205,6 +251,8 @@ class HostEditViewModel(
     app: Application,
 ) : AndroidViewModel(app) {
     private val repo = HostRepository(DbProvider.get(app).hostDao())
+    private val keyRepo = KeyRepository(DbProvider.get(app).keyDao())
+    val keys = keyRepo.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _ui = MutableStateFlow(HostEditUi())
     val ui: StateFlow<HostEditUi> = _ui.asStateFlow()
 
@@ -230,6 +278,7 @@ class HostEditViewModel(
                 username = entity.username,
                 authType = entity.authType,
                 password = CryptoManager.decryptFromBase64(entity.passwordEnc).orEmpty(),
+                privateKeyId = entity.privateKeyId,
             )
         }
     }
@@ -247,7 +296,7 @@ class HostEditViewModel(
                     username = ui.value.username,
                     authType = ui.value.authType,
                     password = ui.value.password,
-                    privateKeyId = null,
+                    privateKeyId = ui.value.privateKeyId,
                     nowEpochMs = now,
                 )
                 onDone()
@@ -263,6 +312,18 @@ class HostEditViewModel(
         viewModelScope.launch {
             _ui.update { it.copy(testing = true, error = null, testResult = null) }
             val snapshot = ui.value
+
+            val keyMaterial = if (snapshot.authType == "key") {
+                val keyId = snapshot.privateKeyId
+                if (keyId == null) {
+                    _ui.update { it.copy(testing = false, testResult = "请选择密钥", testResultOk = false) }
+                    return@launch
+                }
+                keyRepo.getDecryptedById(keyId)
+            } else {
+                null
+            }
+
             val result = withContext(Dispatchers.IO) {
                 SshTestClient.testConnection(
                     SshTestInput(
@@ -271,6 +332,8 @@ class HostEditViewModel(
                         username = snapshot.username,
                         authType = snapshot.authType,
                         password = snapshot.password,
+                        privateKeyPem = keyMaterial?.privateKeyPem,
+                        passphrase = keyMaterial?.passphrase,
                     ),
                 )
             }
@@ -289,7 +352,7 @@ class HostEditViewModel(
                                 username = snapshot.username,
                                 authType = snapshot.authType,
                                 password = snapshot.password,
-                                privateKeyId = null,
+                                privateKeyId = snapshot.privateKeyId,
                                 nowEpochMs = System.currentTimeMillis(),
                             )
                             savedOk = true

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -97,20 +98,17 @@ fun SessionsScreen(
                 }
             }
 
-            // 底部：终端 / 文件 / 端口转发
-            Row(
+            // 右侧：终端 / 文件 / 端口转发（避免底部挡住输入/键盘）
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.CenterEnd)
                     .navigationBarsPadding()
-                    .padding(bottom = 8.dp)
-                    .padding(horizontal = 8.dp)
-                    .then(
-                        Modifier
-                            .padding(0.dp),
-                    )
+                    .imePadding()
+                    .padding(end = 8.dp)
                     .background(Color(0xCC111111), RoundedCornerShape(16.dp))
                     .padding(horizontal = 6.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 IconButton(
                     onClick = { pane = SessionPane.Terminal },

@@ -78,6 +78,7 @@ import com.dxkj.myshell.ui.screens.TerminalHubScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.terminal.SessionState
+import com.dxkj.myshell.terminal.SafeEmulatorView
 import jackpal.androidterm.emulatorview.EmulatorView
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -521,7 +522,7 @@ private fun KeepAliveEmulatorViews(sessions: List<SessionState>) {
             val term = s.term ?: return@forEach
             AndroidView(
                 factory = { ctx ->
-                    EmulatorView(ctx, term, dm).apply {
+                    SafeEmulatorView(ctx, term, dm).apply {
                         setUseCookedIME(false)
                         setTermType("xterm-256color")
                         isFocusable = false

@@ -67,6 +67,7 @@ import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.ssh.SshSessionManager
+import com.dxkj.myshell.terminal.SafeEmulatorView
 import jackpal.androidterm.emulatorview.ColorScheme
 import jackpal.androidterm.emulatorview.EmulatorView
 import jackpal.androidterm.emulatorview.TermSession
@@ -193,11 +194,12 @@ fun TerminalFullScreen(
                         viewRef?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     },
             ) {
-                if (ui.session != null) {
+                val session = ui.session
+                if (session != null) {
                     AndroidView(
                         factory = { ctx ->
                             val dm = ctx.resources.displayMetrics
-                            EmulatorView(ctx, ui.session, dm).apply {
+                            SafeEmulatorView(ctx, session, dm).apply {
                                 val slop = ViewConfiguration.get(ctx).scaledTouchSlop
                                 var downX = 0f
                                 var downY = 0f
@@ -537,22 +539,23 @@ private fun TerminalKeyBar(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilledTonalIconButton(onClick = onToggleKeyBar) { Text("收起") }
-        FilledTonalIconButton(onClick = { onKey("\u001B") }) { Text("Esc") }
-        FilledTonalIconButton(onClick = { onKey("\t") }) { Text("Tab") }
-        FilledTonalIconButton(onClick = { onKey("\u007F") }) { Text("⌫") }
-        FilledTonalIconButton(onClick = { onKey("\r") }) { Text("Enter") }
-        FilledTonalIconButton(onClick = { onKey("\u0003") }) { Text("Ctrl+C") }
-        FilledTonalIconButton(onClick = { onKey("\u001B[A") }) { Text("↑") }
-        FilledTonalIconButton(onClick = { onKey("\u001B[B") }) { Text("↓") }
-        FilledTonalIconButton(onClick = { onKey("\u001B[D") }) { Text("←") }
-        FilledTonalIconButton(onClick = { onKey("\u001B[C") }) { Text("→") }
-        FilledTonalIconButton(onClick = onPaste) { Text("粘贴") }
+        val s = MaterialTheme.typography.labelSmall
+        FilledTonalIconButton(onClick = onToggleKeyBar) { Text("收起", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u001B") }) { Text("Esc", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\t") }) { Text("Tab", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u007F") }) { Text("⌫", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\r") }) { Text("Enter", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u0003") }) { Text("Ctrl+C", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u001B[A") }) { Text("↑", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u001B[B") }) { Text("↓", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u001B[D") }) { Text("←", style = s) }
+        FilledTonalIconButton(onClick = { onKey("\u001B[C") }) { Text("→", style = s) }
+        FilledTonalIconButton(onClick = onPaste) { Text("粘贴", style = s) }
         FilledTonalIconButton(onClick = onToggleToolbar) {
-            Text(if (toolbarEnabled) "工具" else "工具关")
+            Text(if (toolbarEnabled) "工具" else "工具关", style = s)
         }
     }
 }

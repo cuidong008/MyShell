@@ -8,30 +8,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF2563EB), // 蓝：比默认紫更干净
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFDBEAFE),
-    onPrimaryContainer = Color(0xFF0B1B46),
+    // ShellBean 风格参考：更中性的灰底 + 青绿/绿色强调，避免紫/蓝的“塑料感”
+    primary = Color(0xFF19C37D),
+    onPrimary = Color(0xFF062016),
+    primaryContainer = Color(0xFFCFFAE6),
+    onPrimaryContainer = Color(0xFF052014),
 
-    secondary = Color(0xFF0F766E), // 青绿作强调/成功态
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFCCFBF1),
-    onSecondaryContainer = Color(0xFF0A2A27),
+    secondary = Color(0xFF21B6C7),
+    onSecondary = Color(0xFF001F23),
+    secondaryContainer = Color(0xFFB7F2FA),
+    onSecondaryContainer = Color(0xFF002022),
 
-    tertiary = Color(0xFF7C3AED),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFEDE9FE),
-    onTertiaryContainer = Color(0xFF2D155B),
+    tertiary = Color(0xFF94A3B8),
+    onTertiary = Color(0xFF0B1220),
+    tertiaryContainer = Color(0xFFE2E8F0),
+    onTertiaryContainer = Color(0xFF0B1220),
 
-    background = Color(0xFFF8FAFC),
-    onBackground = Color(0xFF0F172A),
+    background = Color(0xFFF5F6F7),
+    onBackground = Color(0xFF111827),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFF1F5F9),
-    onSurfaceVariant = Color(0xFF475569),
+    onSurface = Color(0xFF111827),
+    surfaceVariant = Color(0xFFF0F2F4),
+    onSurfaceVariant = Color(0xFF4B5563),
 
-    outline = Color(0xFFCBD5E1),
-    outlineVariant = Color(0xFFE2E8F0),
+    outline = Color(0xFFD1D5DB),
+    outlineVariant = Color(0xFFE5E7EB),
 
     error = Color(0xFFDC2626),
     onError = Color(0xFFFFFFFF),
@@ -40,30 +41,31 @@ private val LightColors = lightColorScheme(
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF60A5FA),
-    onPrimary = Color(0xFF0B1B46),
-    primaryContainer = Color(0xFF1D4ED8),
-    onPrimaryContainer = Color(0xFFEFF6FF),
+    // ShellBean 风格参考：深灰底、低饱和，强调用青绿
+    primary = Color(0xFF19C37D),
+    onPrimary = Color(0xFF062016),
+    primaryContainer = Color(0xFF0C3B29),
+    onPrimaryContainer = Color(0xFFCFFAE6),
 
-    secondary = Color(0xFF5EEAD4),
-    onSecondary = Color(0xFF042F2E),
-    secondaryContainer = Color(0xFF134E4A),
-    onSecondaryContainer = Color(0xFFCCFBF1),
+    secondary = Color(0xFF21B6C7),
+    onSecondary = Color(0xFF001F23),
+    secondaryContainer = Color(0xFF0D3A40),
+    onSecondaryContainer = Color(0xFFB7F2FA),
 
-    tertiary = Color(0xFFC4B5FD),
-    onTertiary = Color(0xFF2D155B),
-    tertiaryContainer = Color(0xFF5B21B6),
-    onTertiaryContainer = Color(0xFFF5F3FF),
+    tertiary = Color(0xFF94A3B8),
+    onTertiary = Color(0xFF0B1220),
+    tertiaryContainer = Color(0xFF1F2937),
+    onTertiaryContainer = Color(0xFFE5E7EB),
 
-    background = Color(0xFF0B1220),
-    onBackground = Color(0xFFE2E8F0),
-    surface = Color(0xFF0F172A),
-    onSurface = Color(0xFFE2E8F0),
-    surfaceVariant = Color(0xFF1F2937),
-    onSurfaceVariant = Color(0xFF94A3B8),
+    background = Color(0xFF0B0F14),
+    onBackground = Color(0xFFE5E7EB),
+    surface = Color(0xFF0F141B),
+    onSurface = Color(0xFFE5E7EB),
+    surfaceVariant = Color(0xFF151B23),
+    onSurfaceVariant = Color(0xFFA3AAB6),
 
-    outline = Color(0xFF334155),
-    outlineVariant = Color(0xFF1F2937),
+    outline = Color(0xFF2A3340),
+    outlineVariant = Color(0xFF1B2430),
 
     error = Color(0xFFF87171),
     onError = Color(0xFF450A0A),

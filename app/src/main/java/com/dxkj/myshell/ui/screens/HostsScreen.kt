@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -90,10 +91,13 @@ fun HostsScreen(
                     .padding(
                         horizontal = Dimens.ScreenPaddingH,
                         vertical = if (isLandscape) Dimens.SpacingSm else Dimens.SpacingMd,
-                    ),
+                    )
+                    // 默认 OutlinedTextField 会偏高（56dp），这里压到更协调的密度
+                    .heightIn(min = 48.dp),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "search") },
                 label = { Text("搜索主机") },
+                textStyle = MaterialTheme.typography.bodyMedium,
             )
 
             if (hosts.isEmpty()) {

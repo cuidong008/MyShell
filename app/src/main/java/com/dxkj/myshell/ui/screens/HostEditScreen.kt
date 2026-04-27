@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -35,6 +37,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.dxkj.myshell.ui.theme.Dimens
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -79,6 +84,10 @@ fun HostEditScreen(
     val keys by vm.keys.collectAsState()
     val scrollState = rememberScrollState()
 
+    val formTextStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp)
+    val compactFieldMinHeight = 44.dp
+    val labelWidth = 86.dp
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -89,45 +98,74 @@ fun HostEditScreen(
                 horizontal = Dimens.ScreenPaddingH,
                 vertical = if (isLandscape) 12.dp else Dimens.ScreenPaddingV,
             ),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else Dimens.SpacingMd),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) Dimens.SpacingSm else Dimens.SpacingXs),
     ) {
         Text(
             text = if (hostId == null) "新增主机" else "编辑主机",
             style = MaterialTheme.typography.titleLarge,
         )
 
-        OutlinedTextField(
-            value = ui.name,
-            onValueChange = { vm.update { copy(name = it) } },
-            label = { Text("名称") },
+        // 行式输入：标签: 输入框
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        OutlinedTextField(
-            value = ui.host,
-            onValueChange = { vm.update { copy(host = it) } },
-            label = { Text("主机地址") },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+        ) {
+            Text("名称:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+            OutlinedTextField(
+                value = ui.name,
+                onValueChange = { vm.update { copy(name = it) } },
+                modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
+                singleLine = true,
+                textStyle = formTextStyle,
+            )
+        }
+        Spacer(Modifier.height(Dimens.Spacing2))
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        OutlinedTextField(
-            value = ui.port,
-            onValueChange = { vm.update { copy(port = it) } },
-            label = { Text("端口") },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+        ) {
+            Text("主机地址:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+            OutlinedTextField(
+                value = ui.host,
+                onValueChange = { vm.update { copy(host = it) } },
+                modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
+                singleLine = true,
+                textStyle = formTextStyle,
+            )
+        }
+        Spacer(Modifier.height(Dimens.Spacing2))
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        OutlinedTextField(
-            value = ui.username,
-            onValueChange = { vm.update { copy(username = it) } },
-            label = { Text("用户名") },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+        ) {
+            Text("端口:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+            OutlinedTextField(
+                value = ui.port,
+                onValueChange = { vm.update { copy(port = it) } },
+                modifier = Modifier.width(140.dp).heightIn(min = compactFieldMinHeight),
+                singleLine = true,
+                textStyle = formTextStyle,
+            )
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(Dimens.Spacing2))
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+        ) {
+            Text("用户名:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+            OutlinedTextField(
+                value = ui.username,
+                onValueChange = { vm.update { copy(username = it) } },
+                modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
+                singleLine = true,
+                textStyle = formTextStyle,
+            )
+        }
 
         Text(text = "认证方式", style = MaterialTheme.typography.titleMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -135,25 +173,32 @@ fun HostEditScreen(
                 selected = ui.authType == "password",
                 onClick = { vm.update { copy(authType = "password") } },
             )
-            Text("密码", style = MaterialTheme.typography.bodyMedium)
+            Text("密码", style = formTextStyle)
             RadioButton(
                 selected = ui.authType == "key",
                 onClick = { vm.update { copy(authType = "key") } },
                 modifier = Modifier.padding(start = Dimens.SpacingLg),
             )
-            Text("密钥", style = MaterialTheme.typography.bodyMedium)
+            Text("密钥", style = formTextStyle)
         }
 
         if (ui.authType == "password") {
-            OutlinedTextField(
-                value = ui.password,
-                onValueChange = { vm.update { copy(password = it) } },
-                label = { Text("密码") },
+        Spacer(Modifier.height(Dimens.Spacing2))
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                visualTransformation = PasswordVisualTransformation(),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+            ) {
+                Text("密码:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+                OutlinedTextField(
+                    value = ui.password,
+                    onValueChange = { vm.update { copy(password = it) } },
+                    modifier = Modifier.weight(1f).heightIn(min = compactFieldMinHeight),
+                    singleLine = true,
+                    textStyle = formTextStyle,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
         } else {
             var expanded by remember { mutableStateOf(false) }
             val selectedKey = keys.firstOrNull { it.id == ui.privateKeyId }
@@ -161,24 +206,32 @@ fun HostEditScreen(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded },
             ) {
-                OutlinedTextField(
-                    value = selectedKey?.name ?: if (keys.isEmpty()) "（暂无密钥，请先去「密钥」页导入）" else "请选择密钥",
-                    onValueChange = {},
-                    readOnly = true,
-                    enabled = keys.isNotEmpty() && !ui.saving && !ui.testing,
-                    label = { Text("密钥") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    supportingText = {
-                        if (ui.privateKeyId == null) {
-                            Text("密钥认证需要选择一个已导入的私钥", style = MaterialTheme.typography.bodySmall)
-                        }
-                    },
-                )
+            Spacer(Modifier.height(Dimens.Spacing2))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+                ) {
+                    Text("密钥:", style = formTextStyle, modifier = Modifier.width(labelWidth))
+                    OutlinedTextField(
+                        value = selectedKey?.name ?: if (keys.isEmpty()) "（暂无密钥，请先去「密钥」页导入）" else "请选择密钥",
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = keys.isNotEmpty() && !ui.saving && !ui.testing,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = compactFieldMinHeight)
+                            .menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        textStyle = formTextStyle,
+                        supportingText = {
+                            if (ui.privateKeyId == null) {
+                                Text("密钥认证需要选择一个已导入的私钥", style = MaterialTheme.typography.bodySmall)
+                            }
+                        },
+                    )
+                }
                 ExposedDropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
@@ -198,7 +251,7 @@ fun HostEditScreen(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.End),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (ui.testing) {
@@ -229,7 +282,7 @@ fun HostEditScreen(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingMd, Alignment.End),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm, Alignment.End),
         ) {
             Button(
                 onClick = { onDone() },

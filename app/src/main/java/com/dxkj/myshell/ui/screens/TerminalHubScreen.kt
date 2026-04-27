@@ -301,11 +301,7 @@ fun TerminalHubScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Text(
-                text = active?.status ?: if (sessions.isEmpty()) "暂无会话，点击 + 新建" else "连接中…",
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            // 无会话/未连接时不显示占位文案：保持干净（用户在「服务器」页点一条即可创建会话）
         }
 
         // 顶部：标签栏 + 工具条（嵌入会话工作区时可关闭，避免占空间）

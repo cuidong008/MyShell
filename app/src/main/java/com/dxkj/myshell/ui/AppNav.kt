@@ -374,15 +374,7 @@ fun AppNav() {
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    if (sessions.isEmpty()) {
-                                        item {
-                                            Text(
-                                                "暂无会话（在「服务器」点一条即可创建）",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    } else {
+                                    if (sessions.isNotEmpty()) {
                                         items(sessions.size) { idx ->
                                             val s = sessions[idx]
                                             val selected = (activeId == s.sessionId) && (currentRoute?.startsWith(BottomTab.Sessions.route) == true)

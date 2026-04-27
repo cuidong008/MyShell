@@ -60,11 +60,6 @@ fun OverviewScreen(contentPadding: PaddingValues) {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("概览", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "监控依赖已建立的 SSH：在「会话」里连接后，此处按主机合并展示（参考 ShellBean 式卡片）。无连接时不采集；当前脚本面向 Linux /proc。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
                 IconButton(onClick = { vm.refreshNow() }) {
                     Icon(Icons.Outlined.Refresh, contentDescription = "立即刷新")
@@ -93,21 +88,6 @@ fun OverviewScreen(contentPadding: PaddingValues) {
         } else {
             items(hosts, key = { it.hostId }) { card ->
                 HostMonitorCard(card)
-            }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(Dimens.CardPadding),
-                    verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
-                ) {
-                    Text("传输", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "后续可在此聚合后台上传/下载队列与完成提示。",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
             }
         }
         item { Spacer(Modifier.height(Dimens.SpacingXl)) }

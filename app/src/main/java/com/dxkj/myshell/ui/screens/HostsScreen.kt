@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -55,6 +56,8 @@ fun HostsScreen(
     onEditHost: (Long) -> Unit,
     onOpenSession: (Long) -> Unit,
 ) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val context = LocalContext.current
     val vm: HostsViewModel = viewModel(
         factory = HostsViewModel.factory(context.applicationContext as Application),
@@ -83,7 +86,7 @@ fun HostsScreen(
                 onValueChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(horizontal = 16.dp, vertical = if (isLandscape) 8.dp else 12.dp),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "search") },
                 label = { Text("搜索主机") },
@@ -97,14 +100,14 @@ fun HostsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(text = "还没有主机", style = MaterialTheme.typography.headlineSmall)
+                Text(text = "还没有主机", style = MaterialTheme.typography.titleLarge)
                 Text(text = "点击右下角 + 新增一个 SSH 主机")
             }
             } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(filtered, key = { it.id }) { item ->

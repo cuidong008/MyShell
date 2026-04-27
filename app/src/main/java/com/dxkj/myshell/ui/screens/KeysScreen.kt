@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -52,6 +53,8 @@ import android.content.Intent
 
 @Composable
 fun KeysScreen(contentPadding: PaddingValues) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val context = LocalContext.current
     val vm: KeysViewModel = viewModel(factory = KeysViewModel.factory(context.applicationContext as Application))
     val keys by vm.keys.collectAsState()
@@ -93,7 +96,7 @@ fun KeysScreen(contentPadding: PaddingValues) {
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(text = "还没有密钥", style = MaterialTheme.typography.headlineSmall)
+                Text(text = "还没有密钥", style = MaterialTheme.typography.titleLarge)
                 Text(text = "点击右下角 + 导入私钥（OpenSSH/PEM）")
                 if (importError != null) {
                     Text(text = importError ?: "", color = MaterialTheme.colorScheme.error)
@@ -103,14 +106,14 @@ fun KeysScreen(contentPadding: PaddingValues) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(keys, key = { it.id }) { item ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = if (isLandscape) 8.dp else 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {

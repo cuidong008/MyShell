@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
@@ -42,6 +43,8 @@ fun SessionsScreen(
     contentPadding: PaddingValues,
     initialSessionId: Long? = null,
 ) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val context = LocalContext.current
     var pane by remember { mutableStateOf(SessionPane.Terminal) }
     var terminalToolbarVisible by remember { mutableStateOf(true) }
@@ -66,7 +69,7 @@ fun SessionsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // 内容区：从顶部开始显示

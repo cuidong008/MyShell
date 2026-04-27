@@ -42,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,8 @@ fun PortForwardScreen(
     contentPadding: PaddingValues,
     linkedSessionId: Long?,
 ) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val sessions by TerminalSessionPool.sessions.collectAsState()
     val session = remember(sessions, linkedSessionId) {
         linkedSessionId?.let { id -> sessions.firstOrNull { it.sessionId == id } }
@@ -150,8 +153,8 @@ fun PortForwardScreen(
             Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 8.dp),
         ) {
             if (statusText != null) {
                 item {
@@ -159,7 +162,7 @@ fun PortForwardScreen(
                         text = statusText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp),
+                        modifier = Modifier.padding(vertical = if (isLandscape) 8.dp else 12.dp),
                     )
                 }
             } else {

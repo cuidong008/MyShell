@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +39,8 @@ import java.util.Locale
 
 @Composable
 fun OverviewScreen(contentPadding: PaddingValues) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val vm: OverviewViewModel = viewModel()
     val hosts by vm.hosts.collectAsState()
     val anyRefreshing = hosts.any { it.refreshing }
@@ -47,7 +50,7 @@ fun OverviewScreen(contentPadding: PaddingValues) {
             .fillMaxSize()
             .padding(contentPadding)
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
     ) {
         item {
             Row(
@@ -55,10 +58,10 @@ fun OverviewScreen(contentPadding: PaddingValues) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("概览", style = MaterialTheme.typography.headlineSmall)
+                    Text("概览", style = MaterialTheme.typography.titleLarge)
                     Text(
                         "监控依赖已建立的 SSH：在「会话」里连接后，此处按主机合并展示（参考 ShellBean 式卡片）。无连接时不采集；当前脚本面向 Linux /proc。",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -98,7 +101,7 @@ fun OverviewScreen(contentPadding: PaddingValues) {
                     Text(
                         "后续可在此聚合后台上传/下载队列与完成提示。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }

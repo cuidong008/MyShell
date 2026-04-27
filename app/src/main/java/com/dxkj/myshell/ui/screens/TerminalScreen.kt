@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -47,6 +48,8 @@ fun TerminalScreen(
     contentPadding: PaddingValues,
     onOpenFullTerminal: (Long) -> Unit,
 ) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
     val vm: TerminalViewModel = viewModel(factory = TerminalViewModel.factory(context.applicationContext as Application))
@@ -71,10 +74,10 @@ fun TerminalScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp, vertical = if (isLandscape) 12.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp),
     ) {
-        Text(text = "终端", style = MaterialTheme.typography.headlineSmall)
+        Text(text = "终端", style = MaterialTheme.typography.titleLarge)
 
         if (hosts.isEmpty()) {
             Text("请先在「主机」页添加一个主机")

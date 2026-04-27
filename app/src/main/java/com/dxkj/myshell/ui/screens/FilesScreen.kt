@@ -73,6 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
@@ -116,6 +117,8 @@ fun FilesScreen(
     /** 与终端当前会话同一主机：进入文件页时自动连接并列出远程目录（ShellBean 式联动） */
     linkedHostId: Long? = null,
 ) {
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val vm: FilesViewModel = viewModel(factory = FilesViewModel.factory(context.applicationContext as Application))
@@ -169,13 +172,13 @@ fun FilesScreen(
         if (ui.status != null) {
             Text(
                 text = ui.status ?: "",
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = if (isLandscape) 3.dp else 4.dp),
                 color = if (ui.statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         if (ui.progressActive) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 if (ui.progressValue != null) {
                     LinearProgressIndicator(progress = { ui.progressValue ?: 0f }, modifier = Modifier.fillMaxWidth())
                 } else {
@@ -202,9 +205,9 @@ fun FilesScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = if (isLandscape) 4.dp else 6.dp)
                     .simpleVerticalScrollbar(listState),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isLandscape) 3.dp else 4.dp),
             ) {
                 items(displayEntries, key = { it.path }) { e ->
                     var firstTapUptime by remember(e.path) { mutableLongStateOf(0L) }

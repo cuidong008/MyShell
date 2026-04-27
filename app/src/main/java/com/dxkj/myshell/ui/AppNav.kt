@@ -4,6 +4,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
@@ -91,10 +94,19 @@ fun AppNav() {
     val context = LocalContext.current
     val cfg = LocalConfiguration.current
     val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
-    val isWide = cfg.screenWidthDp >= 840
-    val useRail = isLandscape && isWide
+    // 响应式分档（更贴近真实设备）：
+    // - >= 840dp：展开侧栏（含会话列表）
+    // - 600–839dp：紧凑左侧导航 Rail（仅主 tab）
+    // - < 600dp：底部导航
+    val isExpanded = cfg.screenWidthDp >= 840 || cfg.smallestScreenWidthDp >= 840
+    val isMedium = cfg.screenWidthDp >= 600 || cfg.smallestScreenWidthDp >= 600
+    val useRail = isLandscape && isMedium
+    val useSidebar = isLandscape && isExpanded
 
-    val items = listOf(BottomTab.Servers, BottomTab.Overview, BottomTab.Keys)
+    // 底部导航：手机竖屏/小屏使用，保留“会话”入口
+    val items = listOf(BottomTab.Servers, BottomTab.Sessions, BottomTab.Overview, BottomTab.Keys)
+    // 侧栏/左侧导航：这里“会话”用动态列表呈现，因此主功能只保留 3 个 tab，避免重复出现两套“会话入口”
+    val sideTabs = listOf(BottomTab.Servers, BottomTab.Overview, BottomTab.Keys)
 
     val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true || currentRoute?.startsWith("terminal_hub") == true
     val showNav = !isTerminalFull
@@ -107,7 +119,8 @@ fun AppNav() {
     Scaffold(
         topBar = {
             // ShellBean 风格：在横屏侧边栏布局下不显示“当前选中”顶部标题条
-            if (!isTerminalFull && !useRail) {
+            // 同时：横屏时顶部标题条会显著占用垂直空间，默认隐藏以获得更多内容高度
+            if (!isTerminalFull && !useRail && !isLandscape) {
                 TopAppBar(
                     title = {
                         Text(
@@ -134,14 +147,24 @@ fun AppNav() {
             if (showBottomBar) {
                 NavigationBar {
                     items.forEach { tab ->
+                        val selected = when (tab) {
+                            BottomTab.Sessions -> currentRoute?.startsWith(BottomTab.Sessions.route) == true
+                            else -> currentRoute == tab.route
+                        }
                         NavigationBarItem(
-                            selected = currentRoute == tab.route,
+                            selected = selected,
                             onClick = {
                                 if (tab.route == BottomTab.Servers.route) {
                                     // 强制切回“服务器”，避免某些情况下回栈/恢复状态不生效
                                     navController.navigate(BottomTab.Servers.route) {
                                         popUpTo(BottomTab.Servers.route) { inclusive = true }
                                         launchSingleTop = true
+                                    }
+                                } else if (tab.route == BottomTab.Sessions.route) {
+                                    // 进入会话页时，尽量保持当前 active session；sid=-1 会让页面自行选中最后/当前会话
+                                    navController.navigate("${BottomTab.Sessions.route}?sid=-1") {
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
                                 } else if (currentRoute != tab.route) {
                                     navController.navigate(tab.route) {
@@ -150,7 +173,7 @@ fun AppNav() {
                                     }
                                 }
                             },
-                            icon = {},
+                            icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
                             label = { Text(tab.label) },
                         )
                     }
@@ -167,7 +190,7 @@ fun AppNav() {
             KeepAliveEmulatorViews(sessions = allSessions)
 
             Row(modifier = Modifier.fillMaxSize()) {
-                if (showRail) {
+                if (showRail && useSidebar) {
                     val sessions = allSessions
                     val activeId by TerminalSessionPool.activeSessionId.collectAsState()
                     // 复制按钮：复制“会话”（克隆连接），不走剪贴板
@@ -215,7 +238,7 @@ fun AppNav() {
                                     }
                                 }
                             // 顶部分组（无图标占位，文字右对齐，高亮选中）
-                            items.forEach { tab ->
+                            sideTabs.forEach { tab ->
                                 val selected = currentRoute == tab.route
                                 SidebarRow(
                                     title = tab.label,
@@ -298,6 +321,153 @@ fun AppNav() {
                             },
                             dismissButton = { TextButton(onClick = { renameSid = null }) { Text("取消") } },
                         )
+                    }
+                }
+                if (showRail && !useSidebar) {
+                    // 中等宽度设备：也展示“会话列表”，满足“点服务器创建会话 -> 左侧追加一条会话”的交互期望
+                    val sessions = allSessions
+                    val activeId by TerminalSessionPool.activeSessionId.collectAsState()
+                    var railExpanded by remember { mutableStateOf(true) }
+                    val railWidth by animateDpAsState(targetValue = if (railExpanded) 200.dp else 0.dp, label = "railWidthMedium")
+
+                    if (!railExpanded) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .fillMaxHeight()
+                                .systemBarsPadding(),
+                            contentAlignment = Alignment.TopStart,
+                        ) {
+                            IconButton(onClick = { railExpanded = true }, modifier = Modifier.size(40.dp)) {
+                                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "open sidebar")
+                            }
+                        }
+                    }
+                    Surface(
+                        tonalElevation = 2.dp,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(railWidth),
+                    ) {
+                        if (railExpanded) {
+                            var renameSid by remember { mutableStateOf<Long?>(null) }
+                            var renameText by remember { mutableStateOf("") }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .statusBarsPadding()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    IconButton(onClick = { railExpanded = false }, modifier = Modifier.size(36.dp)) {
+                                        Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "collapse sidebar")
+                                    }
+                                }
+
+                                sideTabs.forEach { tab ->
+                                    val selected = currentRoute == tab.route
+                                    SidebarRow(
+                                        title = tab.label,
+                                        selected = selected,
+                                        onClick = {
+                                            if (tab.route == BottomTab.Servers.route) {
+                                                navController.navigate(BottomTab.Servers.route) {
+                                                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                                                    launchSingleTop = true
+                                                    restoreState = false
+                                                }
+                                            } else if (currentRoute != tab.route) {
+                                                navController.navigate(tab.route) {
+                                                    launchSingleTop = true
+                                                    restoreState = true
+                                                }
+                                            }
+                                        },
+                                        trailing = {},
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("会话", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
+
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (sessions.isEmpty()) {
+                                        item {
+                                            Text(
+                                                "暂无会话（在「服务器」点一条即可创建）",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    } else {
+                                        items(sessions.size) { idx ->
+                                            val s = sessions[idx]
+                                            val selected = (activeId == s.sessionId) && (currentRoute?.startsWith(BottomTab.Sessions.route) == true)
+                                            val title = TerminalSessionPool.getDisplayTitle(s)
+                                            SidebarRow(
+                                                title = title,
+                                                selected = selected,
+                                                onClick = {
+                                                    TerminalSessionPool.setActive(s.sessionId)
+                                                    navController.navigate("${BottomTab.Sessions.route}?sid=${s.sessionId}") { launchSingleTop = true }
+                                                },
+                                                trailing = {
+                                                    SmallIconButton(onClick = {
+                                                        renameSid = s.sessionId
+                                                        renameText = title
+                                                    }) {
+                                                        Icon(imageVector = Icons.Outlined.Edit, contentDescription = "rename")
+                                                    }
+                                                    SmallIconButton(onClick = { TerminalSessionPool.close(s.sessionId) }) {
+                                                        Icon(imageVector = Icons.Outlined.Delete, contentDescription = "delete")
+                                                    }
+                                                    SmallIconButton(onClick = {
+                                                        val newId = TerminalSessionPool.duplicateSession(s.sessionId)
+                                                        if (newId != null) {
+                                                            navController.navigate("${BottomTab.Sessions.route}?sid=$newId") { launchSingleTop = true }
+                                                        }
+                                                    }) {
+                                                        Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = "copy")
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (renameSid != null) {
+                                val sid = renameSid!!
+                                AlertDialog(
+                                    onDismissRequest = { renameSid = null },
+                                    title = { Text("重命名会话") },
+                                    text = {
+                                        OutlinedTextField(
+                                            value = renameText,
+                                            onValueChange = { renameText = it },
+                                            singleLine = true,
+                                            label = { Text("名称") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            TerminalSessionPool.renameSession(sid, renameText)
+                                            renameSid = null
+                                        }) { Text("确定") }
+                                    },
+                                    dismissButton = { TextButton(onClick = { renameSid = null }) { Text("取消") } },
+                                )
+                            }
+                        }
                     }
                 }
 

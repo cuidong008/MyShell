@@ -120,6 +120,8 @@ fun HavenKeyboardToolbar(
     }
 
     fun sendChar(ch: Char) {
+        // 对齐 Haven 体验：工具条点击不应导致 IME 焦点丢失
+        focusRequester.requestFocus()
         val b = if (ctrlActive && ch.code in 0x40..0x7F) {
             byteArrayOf((ch.code and 0x1F).toByte())
         } else {
@@ -135,6 +137,7 @@ fun HavenKeyboardToolbar(
     }
 
     fun paste() {
+        focusRequester.requestFocus()
         val t = clipboard.getText()?.text?.toString().orEmpty()
         if (t.isNotEmpty()) onSendBytes(t.toByteArray())
         // 与 Haven 的 KeyboardHandler 行为对齐：一次性修饰键在“完成一次输入”后应清空
@@ -142,12 +145,14 @@ fun HavenKeyboardToolbar(
     }
 
     fun sendBytesFromToolbar(bytes: ByteArray) {
+        focusRequester.requestFocus()
         onSendBytes(bytes)
         // 工具条的发送绕过 KeyboardHandler，这里手动清空一次性修饰键
         modifierManager.clearTransients()
     }
 
     fun dispatchKeyFromToolbar(key: Int) {
+        focusRequester.requestFocus()
         onDispatchKey(0, key)
         modifierManager.clearTransients()
     }
@@ -231,7 +236,6 @@ fun HavenKeyboardToolbar(
                     }
                     TextKey("Paste") { paste() }
                     SymbolKey("/") { sendChar('/') }
-                    TextKey("Home") { dispatchKeyFromToolbar(VTERM_KEY_HOME) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (showVncIcon) {
@@ -246,6 +250,8 @@ fun HavenKeyboardToolbar(
                     ToggleKey("Shift", shiftActive) { modifierManager.toggleShift() }
                     ToggleKey("Ctrl", ctrlActive) { modifierManager.toggleCtrl() }
                     ToggleKey("Alt", altActive) { modifierManager.toggleAlt() }
+                    // 退格：在某些设备/输入法上比系统删除键更稳定
+                    TextKey("⌫") { sendBytesFromToolbar(byteArrayOf(0x7f.toByte())) }
                     TextKey("End") { dispatchKeyFromToolbar(VTERM_KEY_END) }
                 }
             }

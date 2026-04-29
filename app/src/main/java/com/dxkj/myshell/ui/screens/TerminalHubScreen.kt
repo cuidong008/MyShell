@@ -231,7 +231,6 @@ fun TerminalHubScreen(
                         terminalEmulator = emulator,
                         modifier = Modifier
                             .fillMaxSize()
-                            .focusRequester(focusRequester)
                             .focusable(),
                         typeface = hackTypeface,
                         initialFontSize = fontSize.sp,

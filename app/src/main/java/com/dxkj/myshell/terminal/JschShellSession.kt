@@ -10,6 +10,7 @@ import com.jcraft.jsch.Session
 import java.io.Closeable
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -29,10 +30,18 @@ class JschShellSession(
     @Volatile private var pendingResize: ScheduledFuture<*>? = null
     @Volatile private var closed: Boolean = false
 
+    // 对齐 Haven：单线程 executor 串行化写入（避免 UI 线程写导致异常，也避免并发写乱序）
+    @Volatile private var writeExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "ssh-writer-jsch").apply { isDaemon = true }
+    }
+
+    @Volatile private var sshInput: InputStream? = null
+    @Volatile private var sshOutput: OutputStream? = null
+
     val input: InputStream
-        get() = channel?.inputStream ?: error("Shell not started")
+        get() = sshInput ?: (channel?.inputStream ?: error("Shell not started")).also { sshInput = it }
     val output: OutputStream
-        get() = channel?.outputStream ?: error("Shell not started")
+        get() = sshOutput ?: (channel?.outputStream ?: error("Shell not started")).also { sshOutput = it }
 
     fun connectAndOpenShell(
         host: HostEntity,
@@ -42,6 +51,10 @@ class JschShellSession(
     ) {
         close()
         closed = false
+        // close() 会 shutdown 旧 executor，这里重建，避免后续 sendToSsh 被静默丢弃
+        writeExecutor = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "ssh-writer-jsch").apply { isDaemon = true }
+        }
         resizeExecutor = ScheduledThreadPoolExecutor(1) { r ->
             Thread(r, "jsch-pty-resize").apply { isDaemon = true }
         }
@@ -81,6 +94,38 @@ class JschShellSession(
         ch.setPtyType(term, cols, rows, 0, 0)
         ch.connect(10_000)
         channel = ch
+        sshInput = ch.inputStream
+        sshOutput = ch.outputStream
+    }
+
+    /**
+     * 对齐 Haven：把键盘输入字节写入远端 shell。
+     * 可从任意线程调用，内部会转发到写入线程。
+     */
+    fun sendToSsh(data: ByteArray) {
+        val ch = channel
+        if (closed || ch == null || !ch.isConnected) {
+            Log.d("JschShellSession", "sendToSsh: drop ${data.size} bytes (closed=$closed state=${debugState()})")
+            return
+        }
+        val copy = data.copyOf()
+        try {
+            val exec = writeExecutor
+            exec.execute {
+                val ch2 = channel
+                if (closed || ch2 == null || !ch2.isConnected) return@execute
+                try {
+                    val out = sshOutput ?: ch2.outputStream.also { sshOutput = it }
+                    out.write(copy)
+                    out.flush()
+                } catch (t: Throwable) {
+                    Log.e("JschShellSession", "sendToSsh write failed: ${t::class.java.simpleName}: ${t.message} state=${debugState()}")
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // executor shutdown
+            Log.w("JschShellSession", "sendToSsh rejected: executor shutdown state=${debugState()}")
+        }
     }
 
     fun resize(cols: Int, rows: Int) {
@@ -118,8 +163,11 @@ class JschShellSession(
         try { pendingResize?.cancel(false) } catch (_: Throwable) {}
         try { resizeExecutor?.shutdownNow() } catch (_: Throwable) {}
         resizeExecutor = null
+        try { writeExecutor.shutdownNow() } catch (_: Throwable) {}
         try { channel?.disconnect() } catch (_: Throwable) {}
         channel = null
+        sshInput = null
+        sshOutput = null
         try { session?.disconnect() } catch (_: Throwable) {}
         session = null
         jsch = null

@@ -15,10 +15,12 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -70,6 +72,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.terminal.TerminalSessionPool
+import com.dxkj.myshell.ui.terminal.HavenKeyboardToolbar
+import com.dxkj.myshell.ui.terminal.SimpleModifierManager
 import com.dxkj.myshell.ui.theme.Dimens
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.SelectionController
@@ -135,6 +139,11 @@ fun TerminalHubScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showCopyHint by remember { mutableStateOf(false) }
     var copyHintText by remember { mutableStateOf("已复制到剪贴板") }
+    fun showHint(text: String) {
+        copyHintText = text
+        showCopyHint = true
+        Log.d("TerminalHubScreen", "hint: $text")
+    }
 
     // 初始 hostId：自动开会话
     LaunchedEffect(initialHostId) {
@@ -190,89 +199,115 @@ fun TerminalHubScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // 终端主体
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        // 上半区：终端 + 浮层（放进 Box，继续用 align 避免 ColumnScope 限制）
         val emulator = active?.emulator
-        if (emulator != null) {
-            // 参考 Haven：用 key(sessionId) 固定 Terminal 生命周期，避免状态更新导致频繁 dispose/recreate
-            key(active!!.sessionId) {
-                val focusRequester = remember(active!!.sessionId) { FocusRequester() }
-                var selectionController by remember { mutableStateOf<SelectionController?>(null) }
-                // 延迟开启 IME，避免 termlib 在节点未完全挂载时触发 focus/IME 竞态
-                var showIme by remember(active!!.sessionId) { mutableStateOf(false) }
-                LaunchedEffect(active!!.sessionId) {
-                    showIme = false
-                    delay(200)
-                    showIme = true
+        val focusRequester = remember(active?.sessionId) { FocusRequester() }
+        val modifierManager = remember(active?.sessionId) { SimpleModifierManager() }
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            if (emulator != null) {
+                // 参考 Haven：用 key(sessionId) 固定 Terminal 生命周期，避免状态更新导致频繁 dispose/recreate
+                key(active!!.sessionId) {
+                    var selectionController by remember { mutableStateOf<SelectionController?>(null) }
+                    // 延迟开启 IME，避免 termlib 在节点未完全挂载时触发 focus/IME 竞态
+                    var showIme by remember(active!!.sessionId) { mutableStateOf(false) }
+                    LaunchedEffect(active!!.sessionId) {
+                        showIme = false
+                        delay(200)
+                        showIme = true
+                    }
+
+                    Terminal(
+                        terminalEmulator = emulator,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(focusRequester)
+                            .focusable(),
+                        initialFontSize = fontSize.sp,
+                        backgroundColor = Color.Black,
+                        foregroundColor = Color.White,
+                        keyboardEnabled = true,
+                        showSoftKeyboard = showIme,
+                        focusRequester = focusRequester,
+                        modifierManager = modifierManager,
+                        onSelectionControllerAvailable = { selectionController = it },
+                        // 让 termlib 内置 selection 菜单的 “Paste” 可用
+                        onPasteRequest = {
+                            val t = clipboard.getText()?.text?.toString().orEmpty()
+                            if (t.isNotBlank()) {
+                                val b = t.toByteArray()
+                                showHint("已发送 Paste：${b.size}B")
+                                TerminalSessionPool.sendBytes(active.sessionId, b)
+                            } else {
+                                showHint("剪贴板为空")
+                            }
+                        },
+                    )
                 }
-                Terminal(
-                    terminalEmulator = emulator,
+            }
+
+            // 连接状态提示（在工具条上方留出空间）
+            if (active != null && !active.status.isNullOrBlank() && (active.connecting || !active.connected)) {
+                Text(
+                    text = active.status ?: "",
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .focusRequester(focusRequester)
-                        .focusable(),
-                    initialFontSize = fontSize.sp,
-                    backgroundColor = Color.Black,
-                    foregroundColor = Color.White,
-                    keyboardEnabled = true,
-                    showSoftKeyboard = showIme,
-                    focusRequester = focusRequester,
-                    onSelectionControllerAvailable = { selectionController = it },
+                        .align(Alignment.BottomCenter)
+                        .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
+                        .padding(bottom = Dimens.TerminalKeyBarHeight + Dimens.OverlayPaddingH)
+                        .background(
+                            MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                            RoundedCornerShape(Dimens.OverlayCornerSm),
+                        )
+                        .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
                 )
             }
-        } else {
-            // 无会话/未连接时不显示占位文案：保持干净（用户在「服务器」页点一条即可创建会话）
-        }
 
-        // 顶部：标签栏 + 工具条（嵌入会话工作区时可关闭，避免占空间）
-        // 顶部按钮已按需求全部移除（尽量接近桌面终端体验：鼠标选择/右键粘贴）
-
-        if (active != null && !active.status.isNullOrBlank() && (active.connecting || !active.connected)) {
-            Text(
-                text = active.status ?: "",
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = if (keyBarVisible) Dimens.TerminalKeyBarHeight else Dimens.OverlayPaddingH)
-                    .background(
-                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
-                        RoundedCornerShape(Dimens.OverlayCornerSm),
-                    )
-                    .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
-            )
-        }
-
-        if (active?.emulator != null && keyBarVisible) {
-            HubKeyBar(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f))
-                    .padding(horizontal = Dimens.SpacingSm, vertical = Dimens.SpacingSm),
-                onKey = { seq -> TerminalSessionPool.sendInput(active.sessionId, seq) },
-                onPaste = {
-                    val t = clipboard.getText()?.text.orEmpty()
-                    if (t.isNotBlank()) TerminalSessionPool.sendInput(active.sessionId, t)
-                },
-                onToggleKeyBar = { keyBarVisible = false },
-            )
-        }
-
-        if (active?.emulator != null && !keyBarVisible) {
-            FilledTonalIconButton(
-                onClick = { keyBarVisible = true },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = Dimens.SpacingSm)
-                    .background(
-                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
-                        RoundedCornerShape(Dimens.OverlayCorner),
-                    ),
-            ) {
-                Text("快捷键", color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelSmall)
+            if (showCopyHint) {
+                // 轻提示：避免引入 SnackbarHost/Scaffold 改动过大
+                Text(
+                    text = copyHintText,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
+                        .padding(bottom = Dimens.TerminalKeyBarHeight + Dimens.OverlayPaddingH)
+                        .background(
+                            MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
+                            RoundedCornerShape(Dimens.OverlayCornerSm),
+                        )
+                        .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
+                )
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(1200)
+                    showCopyHint = false
+                }
             }
+        }
+
+        // 下半区：Haven 风格底部键盘工具条（不覆盖在终端上，避免触摸被吞）
+        if (emulator != null) {
+            HavenKeyboardToolbar(
+                focusRequester = focusRequester,
+                onSendBytes = { bytes ->
+                    val first = bytes.firstOrNull()?.toInt()?.and(0xFF)
+                    showHint("已发送：${bytes.size}B first=0x${first?.toString(16) ?: "--"}")
+                    TerminalSessionPool.sendBytes(active.sessionId, bytes)
+                },
+                onDispatchKey = { _, key ->
+                    try {
+                        emulator.dispatchKey(0, key)
+                    } catch (_: Throwable) {
+                    }
+                },
+                modifier = Modifier
+                        .fillMaxWidth(),
+                showVncIcon = true,
+                onVncTap = null,
+                modifierManager = modifierManager,
+            )
+        } else {
+            Spacer(modifier = Modifier.height(Dimens.TerminalKeyBarHeight))
         }
 
         if (showHostPicker) {
@@ -315,26 +350,6 @@ fun TerminalHubScreen(
             )
         }
 
-        if (showCopyHint) {
-            // 轻提示：避免引入 SnackbarHost/Scaffold 改动过大
-            Text(
-                text = copyHintText,
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                    .padding(bottom = if (keyBarVisible) Dimens.TerminalKeyBarHeight else Dimens.OverlayPaddingH)
-                    .background(
-                        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
-                        RoundedCornerShape(Dimens.OverlayCornerSm),
-                    )
-                    .padding(horizontal = Dimens.OverlayPaddingH, vertical = Dimens.OverlayPaddingV),
-            )
-            LaunchedEffect(Unit) {
-                kotlinx.coroutines.delay(1200)
-                showCopyHint = false
-            }
-        }
     }
 }
 
@@ -379,34 +394,5 @@ private fun HostPickerDialog(
             }
         },
     )
-}
-
-@Composable
-private fun HubKeyBar(
-    modifier: Modifier = Modifier,
-    onKey: (String) -> Unit,
-    onPaste: () -> Unit,
-    onToggleKeyBar: () -> Unit,
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val s = MaterialTheme.typography.labelSmall
-        FilledTonalIconButton(onClick = onToggleKeyBar) {
-            Icon(imageVector = Icons.Outlined.KeyboardArrowDown, contentDescription = "hide keybar")
-        }
-        FilledTonalIconButton(onClick = { onKey("\u001B") }) { Text("Esc", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\t") }) { Text("Tab", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u007F") }) { Text("⌫", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\r") }) { Text("Enter", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u0003") }) { Text("Ctrl+C", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u001B[A") }) { Text("↑", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u001B[B") }) { Text("↓", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u001B[D") }) { Text("←", style = s) }
-        FilledTonalIconButton(onClick = { onKey("\u001B[C") }) { Text("→", style = s) }
-        FilledTonalIconButton(onClick = onPaste) { Text("粘贴", style = s) }
-    }
 }
 

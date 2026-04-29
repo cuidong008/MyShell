@@ -45,9 +45,6 @@ object TerminalSessionPool {
     private val nextId = AtomicLong(1)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val runtimes = ConcurrentHashMap<Long, TerminalRuntime>()
-    private val sshWriter = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "ssh-writer").apply { isDaemon = true }
-    }
 
     private data class TerminalRuntime(
         val emulator: TerminalEmulator,
@@ -388,16 +385,33 @@ object TerminalSessionPool {
     }
 
     fun sendInput(sessionId: Long, text: String) {
-        val rt = runtimes[sessionId] ?: return
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        sshWriter.execute {
-            try {
-                rt.shell.output.write(bytes)
-                rt.shell.output.flush()
-            } catch (t: Throwable) {
-                Log.w(TAG, "sendInput failed: ${t::class.java.simpleName}: ${t.message}")
-            }
+        val rt = runtimes[sessionId]
+        if (rt == null) {
+            val s = _sessions.value.firstOrNull { it.sessionId == sessionId }
+            Log.w(
+                TAG,
+                "sendInput ignored: runtime missing sessionId=$sessionId connected=${s?.connected} connecting=${s?.connecting} hasEmulator=${s?.emulator != null}",
+            )
+            return
         }
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        sendBytes(sessionId, bytes)
+    }
+
+    /** 直接写入原始字节（用于 Tab/方向键/粘贴等控制序列，避免 String 往返转换带来的问题）。 */
+    fun sendBytes(sessionId: Long, bytes: ByteArray) {
+        val rt = runtimes[sessionId]
+        if (rt == null) {
+            val s = _sessions.value.firstOrNull { it.sessionId == sessionId }
+            Log.w(
+                TAG,
+                "sendBytes ignored: runtime missing sessionId=$sessionId connected=${s?.connected} connecting=${s?.connecting} hasEmulator=${s?.emulator != null} bytes=${bytes.size}",
+            )
+            return
+        }
+        val first = bytes.firstOrNull()?.toInt()?.and(0xFF)
+        Log.d(TAG, "sendBytes: sessionId=$sessionId bytes=${bytes.size} first=${first?.toString(16)} shell=${rt.shell.debugState()}")
+        rt.shell.sendToSsh(bytes)
     }
 
     fun exportLog(sessionId: Long): String? {
@@ -478,7 +492,6 @@ object TerminalSessionPool {
         }
 
         val rawIn = shell.input
-        val out = shell.output
         val sniffingInput = SniffingInputStream(rawIn) { b, o, l ->
             terminalSniffHandler(sessionId, b, o, l)
         }
@@ -491,20 +504,14 @@ object TerminalSessionPool {
             defaultBackground = Color.Black,
             enableAltScreen = true,
             onKeyboardInput = { data ->
-                // termlib uses main looper handler; forward to SSH output serially.
+                // 对齐 Haven：所有输入（软键盘/硬件键盘/工具条）走同一个 sendToSsh，
+                // 避免多写入线程导致乱序（例如 “ls” 还在排队时 Tab 先到远端）。
                 if (data.isNotEmpty()) {
                     Log.d(TAG, "onKeyboardInput: ${data.size} bytes, first=${data[0].toInt() and 0xFF}")
                 } else {
                     Log.d(TAG, "onKeyboardInput: 0 bytes")
                 }
-                sshWriter.execute {
-                    try {
-                        out.write(data)
-                        out.flush()
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "SSH write failed: ${t::class.java.simpleName}: ${t.message} shell=${shell.debugState()}")
-                    }
-                }
+                shell.sendToSsh(data)
             },
             onResize = { dims ->
                 if (dims.columns > 0 && dims.rows > 0) {

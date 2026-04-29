@@ -29,6 +29,7 @@ object Dimens {
     val OverlayChipPaddingV = 6.dp
     val OverlayGap = 6.dp
 
-    val TerminalKeyBarHeight = 56.dp
+    // Haven 风格两行工具条高度（用于底部预留空间与浮层避让）
+    val TerminalKeyBarHeight = 72.dp
 }
 

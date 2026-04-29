@@ -22,3 +22,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "myshell"
 include(":app")
+// Use Haven's termlib as a local module (same implementation as Haven)
+include(":haven-termlib")
+project(":haven-termlib").projectDir = file("../Haven/termlib/lib")

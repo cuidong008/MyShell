@@ -36,13 +36,10 @@ import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.data.repo.KeyRepository
-import com.dxkj.myshell.ssh.SshSessionManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import android.content.Context
-import jackpal.androidterm.emulatorview.TermSession
 
 @Composable
 fun TerminalScreen(
@@ -170,14 +167,11 @@ data class TerminalUi(
     val connected: Boolean = false,
     val status: String? = null,
     val statusOk: Boolean = false,
-    val session: TermSession? = null,
 )
 
 class TerminalViewModel(app: Application) : AndroidViewModel(app) {
     private val db = DbProvider.get(app)
     private val hostRepo = HostRepository(db.hostDao())
-    private val keyRepo = KeyRepository(db.keyDao())
-    private val session = SshSessionManager(keyRepo = keyRepo)
 
     val hosts: StateFlow<List<HostEntity>> =
         hostRepo.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

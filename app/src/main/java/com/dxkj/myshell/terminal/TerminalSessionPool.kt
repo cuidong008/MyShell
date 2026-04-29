@@ -2,7 +2,10 @@ package com.dxkj.myshell.terminal
 
 import android.app.Application
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.PortForwardHoldService
@@ -10,10 +13,13 @@ import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.ssh.DiscoveredListen
 import com.dxkj.myshell.ssh.PortForwardItem
 import com.dxkj.myshell.ssh.SshSessionManager
-import jackpal.androidterm.emulatorview.TermSession
+import androidx.compose.ui.graphics.Color
+import org.connectbot.terminal.TerminalEmulator
+import org.connectbot.terminal.TerminalEmulatorFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -29,11 +36,24 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * 说明：
  * - 会话的网络连接与读写由 sshj + SshSessionManager 负责
- * - 终端渲染与 ANSI/VT 解析由 TermSession + EmulatorView 负责
+ * - 终端渲染与 ANSI/VT 解析由 Haven 同款 termlib (TerminalEmulator) 负责
  */
 object TerminalSessionPool {
+    private const val TAG = "TerminalSessionPool"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val nextId = AtomicLong(1)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val runtimes = ConcurrentHashMap<Long, TerminalRuntime>()
+    private val sshWriter = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "ssh-writer").apply { isDaemon = true }
+    }
+
+    private data class TerminalRuntime(
+        val emulator: TerminalEmulator,
+        val readerJob: Job,
+        val shell: JschShellSession,
+    )
 
     private lateinit var app: Application
     private lateinit var prefs: android.content.SharedPreferences
@@ -284,7 +304,7 @@ object TerminalSessionPool {
             status = "连接中…",
             autoReconnect = autoReconnect,
             ssh = ssh,
-            term = null,
+            emulator = null,
         )
         _sessions.update { it + state }
         _activeSessionId.value = sessionId
@@ -335,7 +355,7 @@ object TerminalSessionPool {
             }
             _sessions.update { list ->
                 list.map {
-                    if (it.sessionId == sessionId) it.copy(connected = false, connecting = false, status = "已断开", term = null)
+                    if (it.sessionId == sessionId) it.copy(connected = false, connecting = false, status = "已断开", emulator = null)
                     else it
                 }
             }
@@ -361,35 +381,29 @@ object TerminalSessionPool {
         val list = _sessions.value
         list.forEach { s ->
             try {
-                s.term?.write(text)
+                sendInput(s.sessionId, text)
             } catch (_: Throwable) {
             }
         }
     }
 
-    fun exportLog(sessionId: Long): String? {
-        val s = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return null
-        val term = s.term ?: return null
-        return try {
-            val dir = java.io.File(app.getExternalFilesDir(null), "logs").apply { mkdirs() }
-            val file = java.io.File(dir, "ssh-${s.hostId}-${System.currentTimeMillis()}.txt")
-            file.writeText(term.transcriptText)
-            _sessions.update { list ->
-                list.map {
-                    if (it.sessionId == sessionId) it.copy(status = "日志已保存：${file.name}")
-                    else it
-                }
+    fun sendInput(sessionId: Long, text: String) {
+        val rt = runtimes[sessionId] ?: return
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        sshWriter.execute {
+            try {
+                rt.shell.output.write(bytes)
+                rt.shell.output.flush()
+            } catch (t: Throwable) {
+                Log.w(TAG, "sendInput failed: ${t::class.java.simpleName}: ${t.message}")
             }
-            file.absolutePath
-        } catch (t: Throwable) {
-            _sessions.update { list ->
-                list.map {
-                    if (it.sessionId == sessionId) it.copy(status = "保存日志失败：${t.message}")
-                    else it
-                }
-            }
-            null
         }
+    }
+
+    fun exportLog(sessionId: Long): String? {
+        // termlib 暂未在本项目实现 transcript 导出（Haven 用的是 Recorder）。
+        // 先保留按钮入口不崩溃，后续如需可按 Haven 的 TerminalRecorder 接入。
+        return null
     }
 
     fun loadOpenHostIds(): List<Long> {
@@ -405,11 +419,14 @@ object TerminalSessionPool {
     }
 
     private suspend fun connectInternal(sessionId: Long) {
+        Log.d(TAG, "connectInternal(sessionId=$sessionId) begin")
         val s0 = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return
         terminalAutoThrottle.keys.filter { it.startsWith("$sessionId|") }.forEach { terminalAutoThrottle.remove(it) }
         _sessions.update { list ->
             list.map {
-                if (it.sessionId == sessionId) it.copy(connecting = true, status = "连接中…", term = null)
+                // 不要在连接流程中把 emulator 置空：会导致 UI dispose Terminal，
+                // termlib 的异步 focus/IME 流程随后触发 requestFocus 时会崩溃。
+                if (it.sessionId == sessionId) it.copy(connecting = true, status = "连接中…")
                 else it
             }
         }
@@ -440,27 +457,19 @@ object TerminalSessionPool {
 
         // title already set above
 
-        val result = withContext(Dispatchers.IO) { s0.ssh.connect(host) }
-        if (!result.ok) {
-            _sessions.update { list ->
-                list.map {
-                    if (it.sessionId == sessionId) it.copy(connecting = false, connected = false, status = result.message, term = null)
-                    else it
-                }
+        // Terminal path: match Haven — use JSch ChannelShell + PTY (not sshj).
+        val shell = JschShellSession(keyRepo)
+        try {
+            withContext(Dispatchers.IO) {
+                shell.connectAndOpenShell(host, term = "xterm-256color", cols = 80, rows = 24)
             }
-            rebuildHostPortForwardUi(host.id)
-            return
-        }
-
-        val streams = withContext(Dispatchers.IO) { s0.ssh.openShellStreams() }
-        if (streams.isFailure) {
+        } catch (t: Throwable) {
             _sessions.update { list ->
                 list.map {
                     if (it.sessionId == sessionId) it.copy(
                         connecting = false,
                         connected = false,
-                        status = "启动终端失败：${streams.exceptionOrNull()?.message}",
-                        term = null,
+                        status = "连接失败：${t::class.java.simpleName}: ${t.message}",
                     ) else it
                 }
             }
@@ -468,45 +477,94 @@ object TerminalSessionPool {
             return
         }
 
-        val (out, rawIn) = streams.getOrThrow()
-        val input = SniffingInputStream(rawIn) { b, o, l ->
+        val rawIn = shell.input
+        val out = shell.output
+        val sniffingInput = SniffingInputStream(rawIn) { b, o, l ->
             terminalSniffHandler(sessionId, b, o, l)
         }
-        val term = TermSession()
-        term.setTitle("SSH")
-        term.setTermIn(input)
-        term.setTermOut(out)
-        // 关键：不要在没有 TermKeyListener 的情况下提前 initializeEmulator。
-        // 否则库内部会创建 TerminalEmulator(keyListener=null)，后续即使 attach 到 EmulatorView 也可能不会补齐，从而在解析转义序列时 NPE。
-        // 避免首次连接时协商序列（如 `1;2c`）残留在屏幕上
-        try {
-            term.setDefaultUTF8Mode(true)
-            term.reset()
-        } catch (_: Throwable) {
-        }
-        term.setFinishCallback(object : TermSession.FinishCallback {
-            override fun onSessionFinish(s: TermSession) {
-                scope.launch {
-                    val hidFinish = _sessions.value.firstOrNull { it.sessionId == sessionId }?.hostId
-                    _sessions.update { list ->
-                        list.map {
-                            if (it.sessionId == sessionId) it.copy(connected = false, connecting = false, status = "连接已断开", term = null)
-                            else it
+
+        // Create Haven termlib emulator (same rendering/input stack as Haven)
+        val emulator = TerminalEmulatorFactory.create(
+            initialRows = 24,
+            initialCols = 80,
+            defaultForeground = Color.White,
+            defaultBackground = Color.Black,
+            enableAltScreen = true,
+            onKeyboardInput = { data ->
+                // termlib uses main looper handler; forward to SSH output serially.
+                if (data.isNotEmpty()) {
+                    Log.d(TAG, "onKeyboardInput: ${data.size} bytes, first=${data[0].toInt() and 0xFF}")
+                } else {
+                    Log.d(TAG, "onKeyboardInput: 0 bytes")
+                }
+                sshWriter.execute {
+                    try {
+                        out.write(data)
+                        out.flush()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "SSH write failed: ${t::class.java.simpleName}: ${t.message} shell=${shell.debugState()}")
+                    }
+                }
+            },
+            onResize = { dims ->
+                if (dims.columns > 0 && dims.rows > 0) {
+                    Log.d(TAG, "onResize: ${dims.columns}x${dims.rows} sessionId=$sessionId")
+                    shell.resize(dims.columns, dims.rows)
+                }
+            },
+        )
+        Log.d(TAG, "created emulator=${System.identityHashCode(emulator)} for sessionId=$sessionId")
+
+        // Start reader: SSH -> emulator.writeInput (must run on main thread)
+        val readerJob = scope.launch(Dispatchers.IO) {
+            val buf = ByteArray(8192)
+            var totalBytes = 0L
+            try {
+                while (true) {
+                    val n = sniffingInput.read(buf)
+                    // IMPORTANT: treat 0 as "no data yet", not EOF.
+                    // Some streams may transiently return 0; only -1 means EOF.
+                    if (n < 0) break
+                    if (n == 0) continue
+                    totalBytes += n.toLong()
+                    val copy = buf.copyOfRange(0, n)
+                    mainHandler.post {
+                        try {
+                            emulator.writeInput(copy, 0, copy.size)
+                        } catch (_: Throwable) {
                         }
                     }
-                    if (hidFinish != null) rebuildHostPortForwardUi(hidFinish)
-                    val cur = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return@launch
-                    if (cur.autoReconnect) scheduleReconnect(sessionId)
                 }
+            } catch (_: Throwable) {
             }
-        })
+            Log.w(
+                TAG,
+                "reader ended for sessionId=$sessionId emulator=${System.identityHashCode(emulator)} totalBytes=$totalBytes shell=${shell.debugState()}",
+            )
+            scope.launch {
+                val hidFinish = _sessions.value.firstOrNull { it.sessionId == sessionId }?.hostId
+                _sessions.update { list ->
+                    list.map {
+                        if (it.sessionId == sessionId) it.copy(connected = false, connecting = false, status = "连接已断开", emulator = null)
+                        else it
+                    }
+                }
+                runtimes.remove(sessionId)
+                try { shell.close() } catch (_: Throwable) {}
+                if (hidFinish != null) rebuildHostPortForwardUi(hidFinish)
+                val cur = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return@launch
+                if (cur.autoReconnect) scheduleReconnect(sessionId)
+            }
+        }
+
+        runtimes[sessionId] = TerminalRuntime(emulator = emulator, readerJob = readerJob, shell = shell)
 
         updateRecentHosts(prefs, host.id)
         prefs.edit().putLong("lastHostId", host.id).apply()
 
         _sessions.update { list ->
             list.map {
-                if (it.sessionId == sessionId) it.copy(connecting = false, connected = true, status = "已连接", term = term)
+                if (it.sessionId == sessionId) it.copy(connecting = false, connected = true, status = "已连接", emulator = emulator)
                 else it
             }
         }
@@ -576,6 +634,6 @@ data class SessionState(
     val autoReconnect: Boolean,
     val reconnectAttempt: Int = 0,
     val ssh: SshSessionManager,
-    val term: TermSession?,
+    val emulator: TerminalEmulator?,
 )
 

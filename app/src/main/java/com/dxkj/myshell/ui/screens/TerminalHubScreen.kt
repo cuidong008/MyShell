@@ -7,11 +7,11 @@ import android.view.InputDevice
 import android.view.inputmethod.InputMethodManager
 import android.view.WindowManager
 import android.view.View
-import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,30 +49,33 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
-import com.dxkj.myshell.terminal.SafeEmulatorView
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.ui.theme.Dimens
-import jackpal.androidterm.emulatorview.ColorScheme
-import jackpal.androidterm.emulatorview.EmulatorView
+import org.connectbot.terminal.Terminal
+import org.connectbot.terminal.SelectionController
 import kotlinx.coroutines.flow.map
-import kotlin.math.abs
+import kotlinx.coroutines.delay
+import android.util.Log
 
 private fun readIntFieldNoThrow(obj: Any, fieldName: String): Int? {
     return try {
@@ -119,55 +122,19 @@ fun TerminalHubScreen(
     val sessions by TerminalSessionPool.sessions.collectAsState()
     val activeId by TerminalSessionPool.activeSessionId.collectAsState()
     val active = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
+    LaunchedEffect(activeId, active?.sessionId, active?.emulator) {
+        Log.d("TerminalHubScreen", "activeId=$activeId activeSession=${active?.sessionId} emulator=${active?.emulator?.let { System.identityHashCode(it) }} connecting=${active?.connecting} connected=${active?.connected}")
+    }
 
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
 
-    var viewRef by remember { mutableStateOf<EmulatorView?>(null) }
     var fontSize by remember { mutableIntStateOf(16) }
-    var schemeId by remember { mutableIntStateOf(0) }
-    var bgAlphaStep by remember { mutableIntStateOf(0) }
-    var cursorHighContrast by remember { mutableStateOf(true) }
+    // termlib 的配色在创建 emulator 时确定；这里先固定黑底白字，后续按 Haven 的 setDefaultColors 再做可配置化。
     var keyBarVisible by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showCopyHint by remember { mutableStateOf(false) }
-    var selectingText by remember { mutableStateOf(false) }
     var copyHintText by remember { mutableStateOf("已复制到剪贴板") }
-
-    fun safeGetSelectedText(): String? {
-        // 这个库在某些边界条件下会在内部抛 ArrayIndexOutOfBounds（选区为 -1 等）
-        return try {
-            viewRef?.getSelectedText()
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun handleMouseMobaXtermLike(ev: MotionEvent): Boolean {
-        val isMouse = (ev.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
-        if (!isMouse) return false
-
-        // 右键：粘贴
-        val right = (ev.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
-        if (right && ev.action == MotionEvent.ACTION_DOWN) {
-            val t = clipboard.getText()?.text.orEmpty()
-            if (t.isNotBlank()) active?.term?.write(t)
-            return true
-        }
-
-        // 中键：粘贴（更接近桌面）
-        val middle = (ev.buttonState and MotionEvent.BUTTON_TERTIARY) != 0
-        if (middle && ev.action == MotionEvent.ACTION_DOWN) {
-            val t = clipboard.getText()?.text.orEmpty()
-            if (t.isNotBlank()) active?.term?.write(t)
-            return true
-        }
-
-        // 左键：单击仍走终端交互；拖动超过阈值才进入选择；松开自动复制并退出选择
-        val left = (ev.buttonState and MotionEvent.BUTTON_PRIMARY) != 0
-        if (!left) return false
-        return false
-    }
 
     // 初始 hostId：自动开会话
     LaunchedEffect(initialHostId) {
@@ -185,9 +152,6 @@ fun TerminalHubScreen(
     LaunchedEffect(active?.hostId) {
         val hid = active?.hostId ?: return@LaunchedEffect
         fontSize = prefs.getInt("fontSize_$hid", 16)
-        schemeId = prefs.getInt("scheme_$hid", 0)
-        bgAlphaStep = prefs.getInt("bgAlpha_$hid", 0)
-        cursorHighContrast = prefs.getBoolean("cursorHi_$hid", true)
         keyBarVisible = prefs.getBoolean("keyBar_$hid", true)
     }
 
@@ -195,15 +159,7 @@ fun TerminalHubScreen(
         val hid = active?.hostId ?: return@LaunchedEffect
         prefs.edit().putInt("fontSize_$hid", fontSize).apply()
     }
-    LaunchedEffect(schemeId, bgAlphaStep, cursorHighContrast, active?.hostId) {
-        val hid = active?.hostId ?: return@LaunchedEffect
-        prefs.edit().putInt("scheme_$hid", schemeId).apply()
-        prefs.edit().putInt("bgAlpha_$hid", bgAlphaStep).apply()
-        prefs.edit().putBoolean("cursorHi_$hid", cursorHighContrast).apply()
-        val scheme = colorSchemeFor(schemeId, bgAlphaStep, cursorHighContrast)
-        active?.term?.setColorScheme(scheme)
-        viewRef?.setColorScheme(scheme)
-    }
+    // 配色偏好暂不处理（见上方注释）
     LaunchedEffect(keyBarVisible, active?.hostId) {
         val hid = active?.hostId ?: return@LaunchedEffect
         prefs.edit().putBoolean("keyBar_$hid", keyBarVisible).apply()
@@ -236,115 +192,34 @@ fun TerminalHubScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         // 终端主体
-        val term = active?.term
-        if (term != null) {
-            AndroidView(
-                factory = { ctx ->
-                    val dm = ctx.resources.displayMetrics
-                    SafeEmulatorView(ctx, term, dm).apply {
-                        val slop = ViewConfiguration.get(ctx).scaledTouchSlop
-                        var downX = 0f
-                        var downY = 0f
-                        var dragging = false
-
-                        setTextSize(fontSize)
-                        setUseCookedIME(false)
-                        setTermType("xterm-256color")
-                        setColorScheme(colorSchemeFor(schemeId, bgAlphaStep, cursorHighContrast))
-                        isVerticalScrollBarEnabled = true
-                        isHorizontalScrollBarEnabled = false
-                        scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        requestFocus()
-                        onResume()
-                        setOnTouchListener { v, ev ->
-                            val isMouse = (ev.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
-                            if (isMouse) {
-                                // 右键 / 中键：粘贴
-                                val right = (ev.buttonState and MotionEvent.BUTTON_SECONDARY) != 0
-                                val middle = (ev.buttonState and MotionEvent.BUTTON_TERTIARY) != 0
-                                if ((right || middle) && ev.action == MotionEvent.ACTION_DOWN) {
-                                    val t = clipboard.getText()?.text.orEmpty()
-                                    if (t.isNotBlank()) active.term?.write(t)
-                                    return@setOnTouchListener true
-                                }
-
-                                val left = (ev.buttonState and MotionEvent.BUTTON_PRIMARY) != 0
-                                when (ev.actionMasked) {
-                                    MotionEvent.ACTION_DOWN -> {
-                                        downX = ev.x
-                                        downY = ev.y
-                                        dragging = false
-                                    }
-                                    MotionEvent.ACTION_MOVE -> {
-                                        if (left && !dragging) {
-                                            val dx = abs(ev.x - downX)
-                                            val dy = abs(ev.y - downY)
-                                            if (dx > slop || dy > slop) {
-                                                dragging = true
-                                                if (!selectingText) {
-                                                    try {
-                                                        toggleSelectingText()
-                                                        selectingText = true
-                                                        // 关键：进入选择模式时要把“锚点”设为当前按下位置，
-                                                        // 否则库内部常会把起点当作 (0,0) 导致“从最开始选/没起始位置”。
-                                                        val anchor = MotionEvent.obtain(ev)
-                                                        anchor.action = MotionEvent.ACTION_DOWN
-                                                        val lineH = getLineHeightPxNoThrow(v)
-                                                        val correctedY = if (lineH > 0) (downY + 2f * lineH) else downY
-                                                        anchor.setLocation(downX, correctedY.coerceAtLeast(0f))
-                                                        v.onTouchEvent(anchor)
-                                                        anchor.recycle()
-                                                    } catch (_: Throwable) {
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                        if (selectingText && dragging) {
-                                            val selected = safeGetSelectedText()?.takeIf { it.isNotBlank() }
-                                            if (!selected.isNullOrBlank()) {
-                                                clipboard.setText(AnnotatedString(selected))
-                                                copyHintText = "已复制到剪贴板"
-                                                showCopyHint = true
-                                            }
-                                            try {
-                                                toggleSelectingText()
-                                            } catch (_: Throwable) {
-                                            }
-                                            selectingText = false
-                                            dragging = false
-                                        }
-                                    }
-                                }
-                            }
-                            // 鼠标选区在部分设备上会整体“偏下 2 行”，这里对选择态事件做一次 y 修正。
-                            if (isMouse && selectingText) {
-                                val lineH = getLineHeightPxNoThrow(v)
-                                if (lineH > 0) {
-                                    val adj = MotionEvent.obtain(ev)
-                                    adj.setLocation(ev.x, (ev.y + 2f * lineH).coerceAtLeast(0f))
-                                    val handled = v.onTouchEvent(adj)
-                                    adj.recycle()
-                                    return@setOnTouchListener handled
-                                }
-                            }
-                            v.onTouchEvent(ev)
-                        }
-                        viewRef = this
-                    }
-                },
-                update = { v ->
-                    if (v.getTermSession() !== active.term) v.attachSession(active.term)
-                    v.setTextSize(fontSize)
-                    v.setColorScheme(colorSchemeFor(schemeId, bgAlphaStep, cursorHighContrast))
-                    v.requestFocus()
-                    viewRef = v
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+        val emulator = active?.emulator
+        if (emulator != null) {
+            // 参考 Haven：用 key(sessionId) 固定 Terminal 生命周期，避免状态更新导致频繁 dispose/recreate
+            key(active!!.sessionId) {
+                val focusRequester = remember(active!!.sessionId) { FocusRequester() }
+                var selectionController by remember { mutableStateOf<SelectionController?>(null) }
+                // 延迟开启 IME，避免 termlib 在节点未完全挂载时触发 focus/IME 竞态
+                var showIme by remember(active!!.sessionId) { mutableStateOf(false) }
+                LaunchedEffect(active!!.sessionId) {
+                    showIme = false
+                    delay(200)
+                    showIme = true
+                }
+                Terminal(
+                    terminalEmulator = emulator,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .focusable(),
+                    initialFontSize = fontSize.sp,
+                    backgroundColor = Color.Black,
+                    foregroundColor = Color.White,
+                    keyboardEnabled = true,
+                    showSoftKeyboard = showIme,
+                    focusRequester = focusRequester,
+                    onSelectionControllerAvailable = { selectionController = it },
+                )
+            }
         } else {
             // 无会话/未连接时不显示占位文案：保持干净（用户在「服务器」页点一条即可创建会话）
         }
@@ -368,23 +243,23 @@ fun TerminalHubScreen(
             )
         }
 
-        if (active?.term != null && keyBarVisible) {
+        if (active?.emulator != null && keyBarVisible) {
             HubKeyBar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
                     .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f))
                     .padding(horizontal = Dimens.SpacingSm, vertical = Dimens.SpacingSm),
-                onKey = { seq -> active.term.write(seq) },
+                onKey = { seq -> TerminalSessionPool.sendInput(active.sessionId, seq) },
                 onPaste = {
                     val t = clipboard.getText()?.text.orEmpty()
-                    if (t.isNotBlank()) active.term.write(t)
+                    if (t.isNotBlank()) TerminalSessionPool.sendInput(active.sessionId, t)
                 },
                 onToggleKeyBar = { keyBarVisible = false },
             )
         }
 
-        if (active?.term != null && !keyBarVisible) {
+        if (active?.emulator != null && !keyBarVisible) {
             FilledTonalIconButton(
                 onClick = { keyBarVisible = true },
                 modifier = Modifier
@@ -533,26 +408,5 @@ private fun HubKeyBar(
         FilledTonalIconButton(onClick = { onKey("\u001B[C") }) { Text("→", style = s) }
         FilledTonalIconButton(onClick = onPaste) { Text("粘贴", style = s) }
     }
-}
-
-private fun colorSchemeFor(id: Int, bgAlphaStep: Int, cursorHighContrast: Boolean): ColorScheme {
-    // 复用 TerminalFullScreen 里的定义逻辑：这里保持一致即可
-    fun alpha(a: Int, rgb: Int): Int = (a shl 24) or (rgb and 0x00FFFFFF)
-    val bgA = when (bgAlphaStep.coerceIn(0, 2)) {
-        0 -> 0xFF
-        1 -> 0xE6
-        else -> 0xCC
-    }
-    val base = when (id % 7) {
-        0 -> intArrayOf(0xFF33FF33.toInt(), alpha(bgA, 0x000000), 0xFF000000.toInt(), 0xFF33FF33.toInt())
-        1 -> intArrayOf(0xFFEAEAEA.toInt(), alpha(bgA, 0x000000), 0xFF000000.toInt(), 0xFFEAEAEA.toInt())
-        2 -> intArrayOf(0xFF93A1A1.toInt(), alpha(bgA, 0x002B36), 0xFF002B36.toInt(), 0xFF93A1A1.toInt())
-        3 -> intArrayOf(0xFF586E75.toInt(), alpha(bgA, 0xFDF6E3), 0xFFFDF6E3.toInt(), 0xFF586E75.toInt())
-        4 -> intArrayOf(0xFFF8F8F2.toInt(), alpha(bgA, 0x282A36), 0xFF282A36.toInt(), 0xFFF8F8F2.toInt())
-        5 -> intArrayOf(0xFFF8F8F2.toInt(), alpha(bgA, 0x272822), 0xFF272822.toInt(), 0xFFF8F8F2.toInt())
-        else -> intArrayOf(0xFFABB2BF.toInt(), alpha(bgA, 0x282C34), 0xFF282C34.toInt(), 0xFFABB2BF.toInt())
-    }
-    val c = if (cursorHighContrast) intArrayOf(base[2], base[3]) else intArrayOf(base[1], base[0])
-    return ColorScheme(base[0], base[1], c[0], c[1])
 }
 

@@ -73,13 +73,10 @@ import com.dxkj.myshell.ui.screens.HostEditScreen
 import com.dxkj.myshell.ui.screens.KeysScreen
 import com.dxkj.myshell.ui.screens.OverviewScreen
 import com.dxkj.myshell.ui.screens.SessionsScreen
-import com.dxkj.myshell.ui.screens.TerminalFullScreen
 import com.dxkj.myshell.ui.screens.TerminalHubScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.terminal.SessionState
-import com.dxkj.myshell.terminal.SafeEmulatorView
-import jackpal.androidterm.emulatorview.EmulatorView
 import androidx.compose.ui.viewinterop.AndroidView
 import com.dxkj.myshell.ui.theme.Dimens
 
@@ -161,8 +158,7 @@ fun AppNav() {
         val contentPaddingForPane = if (useRail) PaddingValues(0.dp) else innerPadding
         Box(modifier = Modifier.fillMaxSize()) {
             // 关键修复：当用户快速切换导航导致终端 UI 被销毁时，库内部会出现 TermKeyListener 为 null 的 NPE。
-            // 这里常驻一个“不可见的 EmulatorView”，确保每个活跃 TermSession 始终有 KeyListener 绑定，避免崩溃。
-            KeepAliveEmulatorViews(sessions = allSessions)
+            // termlib 不需要通过隐藏 View 来维持 KeyListener。
 
             Row(modifier = Modifier.fillMaxSize()) {
                 if (showRail && useSidebar) {
@@ -481,9 +477,12 @@ fun AppNav() {
                 arguments = listOf(navArgument("hostId") { type = NavType.LongType }),
             ) { entry ->
                 val hostId = entry.arguments?.getLong("hostId") ?: -1L
-                TerminalFullScreen(
-                    hostId = hostId,
+                // 统一终端实现：full 路由也复用 TerminalHubScreen + TerminalSessionPool
+                TerminalHubScreen(
+                    initialHostId = hostId.takeIf { it > 0 },
                     onExit = { navController.popBackStack() },
+                    immersive = true,
+                    showBack = true,
                 )
             }
 
@@ -501,34 +500,6 @@ fun AppNav() {
             }
             }
             }
-        }
-    }
-}
-
-@Composable
-private fun KeepAliveEmulatorViews(sessions: List<SessionState>) {
-    val context = LocalContext.current
-    val dm = context.resources.displayMetrics
-    // 尽量不影响交互：透明、极小、不可聚焦。仅用于让库内部 KeyListener 不为 null。
-    Column(modifier = Modifier.size(1.dp).alpha(0f)) {
-        sessions.forEach { s ->
-            val term = s.term ?: return@forEach
-            AndroidView(
-                factory = { ctx ->
-                    SafeEmulatorView(ctx, term, dm).apply {
-                        setUseCookedIME(false)
-                        setTermType("xterm-256color")
-                        isFocusable = false
-                        isFocusableInTouchMode = false
-                        onResume()
-                    }
-                },
-                update = { v ->
-                    if (v.getTermSession() !== term) v.attachSession(term)
-                    v.onResume()
-                },
-                modifier = Modifier.size(1.dp),
-            )
         }
     }
 }

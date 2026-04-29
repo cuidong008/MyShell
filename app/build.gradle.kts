@@ -36,8 +36,9 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        // Haven termlib uses Java 17 toolchain; align to avoid mixed bytecode/tooling issues.
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
@@ -64,9 +65,11 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.sshj)
+    implementation(libs.jsch)
     implementation(libs.bcprov.jdk18on)
     implementation(libs.bcpkix.jdk18on)
-    implementation(libs.android.terminal.emulator)
+    // Replace EmulatorView with Haven's termlib terminal emulator
+    implementation(project(":haven-termlib"))
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

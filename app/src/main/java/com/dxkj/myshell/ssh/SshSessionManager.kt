@@ -74,6 +74,9 @@ class SshSessionManager(
     private val keyRepo: KeyRepository,
     private val onPortForwardUiChanged: () -> Unit = {},
 ) {
+    @Volatile private var lastPtyCols: Int = 80
+    @Volatile private var lastPtyRows: Int = 24
+
     private var client: SSHClient? = null
     private var session: Session? = null
     private var shell: Session.Shell? = null
@@ -537,31 +540,20 @@ class SshSessionManager(
             if (msg.isNotEmpty()) append("，详情=").append(msg)
         }
     }
-
-    private fun ensureEnvForInteractiveShell(sess: Session) {
-        // 某些环境（尤其是没有成功分配 PTY 时）会把 TERM 置为 dumb，导致 zsh/换行/光标行为异常。
-        // 在启动 shell 前设置 TERM，避免依赖登录后注入命令。
-        try {
-            sess.setEnvVar("TERM", "xterm-256color")
-        } catch (_: Throwable) {
-        }
-        try {
-            sess.setEnvVar("COLORTERM", "truecolor")
-        } catch (_: Throwable) {
-        }
+ 
+    private fun allocatePtyLikeHaven(sess: Session, cols: Int = 80, rows: Int = 24) {
+        // 对齐 Haven：仅请求 xterm-256color PTY，不额外注入环境变量或降级 term。
+        sess.allocatePTY("xterm-256color", cols, rows, 0, 0, emptyMap())
     }
 
-    private fun allocatePtyBestEffort(sess: Session, cols: Int = 80, rows: Int = 24): Boolean {
-        // 部分机型/服务端对某些 termname 不兼容；做降级重试，尽量拿到 PTY。
-        val terms = listOf("xterm-256color", "xterm", "vt100")
-        for (t in terms) {
-            try {
-                sess.allocatePTY(t, cols, rows, 0, 0, emptyMap())
-                return true
-            } catch (_: Throwable) {
-            }
+    fun resizePty(cols: Int, rows: Int) {
+        if (cols <= 0 || rows <= 0) return
+        lastPtyCols = cols
+        lastPtyRows = rows
+        try {
+            shell?.changeWindowDimensions(cols, rows, 0, 0)
+        } catch (_: Throwable) {
         }
-        return false
     }
 
     fun startShell(
@@ -583,10 +575,9 @@ class SshSessionManager(
                 val sess = c.startSession()
                 session = sess
 
-                // PTY might be rejected on some servers; try PTY first, then fallback without PTY.
+                // 对齐 Haven：固定 xterm-256color PTY，失败则继续尝试启动 shell。
                 try {
-                    ensureEnvForInteractiveShell(sess)
-                    allocatePtyBestEffort(sess, cols = 80, rows = 24)
+                    allocatePtyLikeHaven(sess, cols = lastPtyCols, rows = lastPtyRows)
                 } catch (t: Throwable) {
                     onOutput("PTY 分配失败（将尝试无 PTY）：${t::class.java.simpleName}: ${t.message}\n")
                 }
@@ -626,8 +617,7 @@ class SshSessionManager(
             val sess = c.startSession()
             session = sess
             try {
-                ensureEnvForInteractiveShell(sess)
-                allocatePtyBestEffort(sess, cols = 80, rows = 24)
+                allocatePtyLikeHaven(sess, cols = lastPtyCols, rows = lastPtyRows)
             } catch (_: Throwable) {
             }
             val sh = sess.startShell()
@@ -644,6 +634,15 @@ class SshSessionManager(
         try {
             val out = writer ?: return
             out.write(text.toByteArray(Charsets.UTF_8))
+            out.flush()
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun sendBytes(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size) {
+        try {
+            val out = writer ?: return
+            out.write(bytes, offset, length)
             out.flush()
         } catch (_: Throwable) {
         }

@@ -8,6 +8,7 @@ import android.view.inputmethod.InputMethodManager
 import android.view.WindowManager
 import android.view.View
 import android.view.ViewConfiguration
+import android.graphics.Typeface
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -69,12 +70,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.content.res.ResourcesCompat
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.ui.terminal.HavenKeyboardToolbar
 import com.dxkj.myshell.ui.terminal.SimpleModifierManager
 import com.dxkj.myshell.ui.theme.Dimens
+import com.dxkj.myshell.R
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.SelectionController
 import kotlinx.coroutines.flow.map
@@ -120,6 +123,13 @@ fun TerminalHubScreen(
     val activity = context as? Activity
     val clipboard = LocalClipboardManager.current
     val imm = remember(context) { context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager }
+    val hackTypeface = remember(context) {
+        try {
+            ResourcesCompat.getFont(context, R.font.hack_regular) ?: Typeface.MONOSPACE
+        } catch (_: Throwable) {
+            Typeface.MONOSPACE
+        }
+    }
 
     TerminalSessionPool.init(context.applicationContext as Application)
 
@@ -223,6 +233,7 @@ fun TerminalHubScreen(
                             .fillMaxSize()
                             .focusRequester(focusRequester)
                             .focusable(),
+                        typeface = hackTypeface,
                         initialFontSize = fontSize.sp,
                         backgroundColor = Color.Black,
                         foregroundColor = Color.White,

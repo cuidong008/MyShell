@@ -496,6 +496,29 @@ object TerminalSessionPool {
             return
         }
 
+        // Port scan / port-forward path: SSHJ (SshSessionManager) is used there.
+        // Terminal connection can succeed while SSHJ is not connected; ensure SSHJ is ready for "扫描远端监听/端口转发".
+        try {
+            val cr = withContext(Dispatchers.IO) { s0.ssh.connect(host) }
+            if (!cr.ok) {
+                Log.w(TAG, "sshj connect failed for sessionId=$sessionId: ${cr.message}")
+                _sessions.update { list ->
+                    list.map {
+                        if (it.sessionId == sessionId) it.copy(status = "已连接（端口功能不可用：${cr.message}）")
+                        else it
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "sshj connect threw for sessionId=$sessionId: ${t::class.java.simpleName}: ${t.message}", t)
+            _sessions.update { list ->
+                list.map {
+                    if (it.sessionId == sessionId) it.copy(status = "已连接（端口功能不可用：${t::class.java.simpleName}: ${t.message}）")
+                    else it
+                }
+            }
+        }
+
         val rawIn = shell.input
         val sniffingInput = SniffingInputStream(rawIn) { b, o, l ->
             terminalSniffHandler(sessionId, b, o, l)

@@ -8,9 +8,12 @@ import java.util.regex.Pattern
  */
 object RemotePortDiscovery {
 
-    /** ss -Hltn：Local Address 可能为 127.0.0.1:3000、*:8000、[::1]:631、[ipv6]:443 */
+    /**
+     * ss -Hltn：`-H` 只去表头，常见发行版仍带 Netid 列，如 `tcp   LISTEN 0 128 0.0.0.0:22 ...`。
+     * 也兼容无 Netid 的旧版/`ss` 实现。
+     */
     private val ssListenLine = Pattern.compile(
-        """LISTEN\s+\d+\s+\d+\s+((?:\[[^\]]+\]|[^\s:]+)):(\d+)\s+""",
+        """^(?:(?:tcp6?|sctp)\s+)?LISTEN\s+\d+\s+\d+\s+((?:\[[^\]]+\]|[^\s:]+)):(\d+)\s+""",
     )
 
     /** 常见开发服务在终端里打印的地址（与 VS Code 终端检测思路一致） */

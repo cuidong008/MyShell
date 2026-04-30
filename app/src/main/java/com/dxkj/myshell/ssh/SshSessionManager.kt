@@ -1,5 +1,6 @@
 package com.dxkj.myshell.ssh
 
+import android.util.Log
 import com.dxkj.myshell.data.db.HostEntity
 import com.dxkj.myshell.data.repo.KeyRepository
 import com.dxkj.myshell.crypto.CryptoManager
@@ -239,19 +240,28 @@ class SshSessionManager(
     suspend fun scanRemoteListenersAndMerge(autoSamePortForward: Boolean): Result<Int> =
         withContext(Dispatchers.IO) {
             val c = client ?: return@withContext Result.failure(IllegalStateException("未连接"))
+            val cmd = "bash -lc 'export LANG=C LC_ALL=C; ss -Hltn 2>/dev/null || netstat -lnt 2>/dev/null || true'"
+            Log.i(TAG, "scanRemoteListenersAndMerge: start autoSamePortForward=$autoSamePortForward")
             val r = execCaptureUnscoped(
                 c,
-                "bash -lc 'export LANG=C LC_ALL=C; ss -Hltn 2>/dev/null || netstat -lnt 2>/dev/null || true'",
-                timeoutSec = 12L,
+                cmd,
+                timeoutSec = 20L,
             )
             if (r.isFailure) {
-                return@withContext Result.failure(r.exceptionOrNull() ?: Exception("扫描失败"))
+                val e = r.exceptionOrNull() ?: Exception("扫描失败")
+                Log.e(TAG, "scanRemoteListenersAndMerge: exec failed: ${e.javaClass.simpleName}: ${e.message}", e)
+                return@withContext Result.failure(e)
             }
             val text = r.getOrNull() ?: ""
             var list = RemotePortDiscovery.parseSsListenTcp(text)
             if (list.isEmpty()) {
                 list = RemotePortDiscovery.parseNetstatListenTcp(text)
             }
+            val preview = text.lineSequence().take(6).joinToString("\n")
+            Log.i(
+                TAG,
+                "scanRemoteListenersAndMerge: outputChars=${text.length} parsed=${list.size} preview=\n$preview",
+            )
             for ((h, p) in list) {
                 mergeDiscoveredPort(h, p, "远端扫描")
             }
@@ -278,12 +288,14 @@ class SshSessionManager(
             val sess = c.startSession()
             try {
                 val cmd = sess.exec(command)
-                cmd.join(timeoutSec.coerceIn(3L, 120L), TimeUnit.SECONDS)
+                val t = timeoutSec.coerceIn(3L, 120L)
+                cmd.join(t, TimeUnit.SECONDS)
                 val out = cmd.inputStream.use { ins -> ins.readBytes().toString(Charsets.UTF_8) }
                 val err = cmd.errorStream.use { es -> es.readBytes().toString(Charsets.UTF_8) }
                 val merged = listOf(out, err).filter { it.isNotBlank() }.joinToString("\n")
                 Result.success(merged)
             } catch (t: Throwable) {
+                Log.e(TAG, "execCaptureUnscoped failed: ${t.javaClass.simpleName}: ${t.message}", t)
                 Result.failure(t)
             } finally {
                 try {
@@ -692,6 +704,7 @@ class SshSessionManager(
 
     companion object {
         private const val SSH_CONTROL_PORT = 22
+        private const val TAG = "SshSessionManager"
     }
 }
 

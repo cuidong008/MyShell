@@ -189,12 +189,23 @@ fun PortForwardScreen(
                             scanBusy = true
                             scanHint = null
                             scope.launch {
-                                val r = act.ssh.scanRemoteListenersAndMerge(autoSamePortForward = false)
-                                scanBusy = false
-                                scanHint = if (r.isSuccess) {
-                                    "扫描完成，发现 ${r.getOrNull() ?: 0} 条监听"
-                                } else {
-                                    "扫描失败：${r.exceptionOrNull()?.message}"
+                                try {
+                                    val r = act.ssh.scanRemoteListenersAndMerge(autoSamePortForward = false)
+                                    scanHint = if (r.isSuccess) {
+                                        "扫描完成，发现 ${r.getOrNull() ?: 0} 条监听"
+                                    } else {
+                                        val e = r.exceptionOrNull()
+                                        val m = e?.message
+                                        if (m.isNullOrBlank()) {
+                                            "扫描失败：${e?.javaClass?.simpleName ?: "Unknown"}"
+                                        } else {
+                                            "扫描失败：$m"
+                                        }
+                                    }
+                                } catch (e: Throwable) {
+                                    scanHint = "扫描失败：${e.message ?: e.javaClass.simpleName}"
+                                } finally {
+                                    scanBusy = false
                                 }
                             }
                         },

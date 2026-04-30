@@ -136,10 +136,6 @@ fun TerminalHubScreen(
     val sessions by TerminalSessionPool.sessions.collectAsState()
     val activeId by TerminalSessionPool.activeSessionId.collectAsState()
     val active = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
-    LaunchedEffect(activeId, active?.sessionId, active?.emulator) {
-        Log.d("TerminalHubScreen", "activeId=$activeId activeSession=${active?.sessionId} emulator=${active?.emulator?.let { System.identityHashCode(it) }} connecting=${active?.connecting} connected=${active?.connected}")
-    }
-
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
 
     var fontSize by remember { mutableIntStateOf(16) }
@@ -152,7 +148,6 @@ fun TerminalHubScreen(
     fun showHint(text: String) {
         copyHintText = text
         showCopyHint = true
-        Log.d("TerminalHubScreen", "hint: $text")
     }
 
     // 初始 hostId：自动开会话
@@ -246,7 +241,6 @@ fun TerminalHubScreen(
                             val t = clipboard.getText()?.text?.toString().orEmpty()
                             if (t.isNotBlank()) {
                                 val b = t.toByteArray()
-                                showHint("已发送 Paste：${b.size}B")
                                 TerminalSessionPool.sendBytes(active.sessionId, b)
                             } else {
                                 showHint("剪贴板为空")
@@ -300,8 +294,6 @@ fun TerminalHubScreen(
             HavenKeyboardToolbar(
                 focusRequester = focusRequester,
                 onSendBytes = { bytes ->
-                    val first = bytes.firstOrNull()?.toInt()?.and(0xFF)
-                    showHint("已发送：${bytes.size}B first=0x${first?.toString(16) ?: "--"}")
                     TerminalSessionPool.sendBytes(active.sessionId, bytes)
                 },
                 onDispatchKey = { _, key ->

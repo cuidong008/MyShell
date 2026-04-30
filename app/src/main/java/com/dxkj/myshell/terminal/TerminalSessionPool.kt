@@ -501,7 +501,6 @@ object TerminalSessionPool {
         try {
             val cr = withContext(Dispatchers.IO) { s0.ssh.connect(host) }
             if (!cr.ok) {
-                Log.w(TAG, "sshj connect failed for sessionId=$sessionId: ${cr.message}")
                 _sessions.update { list ->
                     list.map {
                         if (it.sessionId == sessionId) it.copy(status = "已连接（端口功能不可用：${cr.message}）")
@@ -510,7 +509,6 @@ object TerminalSessionPool {
                 }
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "sshj connect threw for sessionId=$sessionId: ${t::class.java.simpleName}: ${t.message}", t)
             _sessions.update { list ->
                 list.map {
                     if (it.sessionId == sessionId) it.copy(status = "已连接（端口功能不可用：${t::class.java.simpleName}: ${t.message}）")

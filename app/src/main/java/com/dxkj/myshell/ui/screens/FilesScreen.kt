@@ -41,6 +41,16 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.FindReplace
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
@@ -59,14 +69,32 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,10 +103,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dxkj.myshell.ui.theme.Dimens
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -107,6 +138,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
 import java.util.Locale
+import android.app.Activity
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.unit.sp
 
 /** 列表行主区域：两次轻触间隔内视为双击（目录进入 / 文件编辑） */
 private const val FILE_ENTRY_DOUBLE_TAP_MS = 500L
@@ -143,6 +181,7 @@ fun FilesScreen(
     var pendingEdit by remember { mutableStateOf<RemoteEntryUi?>(null) }
     var editText by remember { mutableStateOf("") }
     var editLoading by remember { mutableStateOf(false) }
+    var editFullscreen by remember { mutableStateOf(false) }
     var showNewFileDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
     var pendingChmod by remember { mutableStateOf<RemoteEntryUi?>(null) }
@@ -484,33 +523,24 @@ fun FilesScreen(
 
     if (pendingEdit != null) {
         val e = pendingEdit!!
-        AlertDialog(
-            onDismissRequest = { pendingEdit = null },
-            title = { Text("编辑：${e.name}") },
-            text = {
-                if (editLoading) {
-                    Text("加载中…")
-                } else {
-                    OutlinedTextField(
-                        value = editText,
-                        onValueChange = { editText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 10,
-                        label = { Text("内容") },
-                    )
+        RemoteTextEditorDialog(
+            title = "编辑：${e.name}",
+            loading = editLoading,
+            text = editText,
+            onTextChange = { editText = it },
+            fullscreen = editFullscreen,
+            onToggleFullscreen = { editFullscreen = !editFullscreen },
+            onDismiss = {
+                pendingEdit = null
+                editFullscreen = false
+            },
+            onSave = {
+                vm.writeRemoteText(e.path, editText) { _, _ ->
+                    pendingEdit = null
+                    editFullscreen = false
                 }
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.writeRemoteText(e.path, editText) { ok, msg ->
-                            pendingEdit = null
-                        }
-                    },
-                    enabled = ui.connected && !editLoading,
-                ) { Text("保存") }
-            },
-            dismissButton = { TextButton(onClick = { pendingEdit = null }) { Text("取消") } },
+            saveEnabled = ui.connected && !editLoading,
         )
     }
 
@@ -576,6 +606,378 @@ fun FilesScreen(
             },
             dismissButton = { TextButton(onClick = { pendingChmod = null }) { Text("取消") } },
         )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun RemoteTextEditorDialog(
+    title: String,
+    loading: Boolean,
+    text: String,
+    onTextChange: (String) -> Unit,
+    fullscreen: Boolean,
+    onToggleFullscreen: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    saveEnabled: Boolean,
+) {
+    val view = LocalView.current
+    val activity = remember(view) { view.context as? Activity }
+
+    // 更接近 Haven：全屏时进入沉浸模式（隐藏状态栏/导航栏，滑动可临时呼出）
+    DisposableEffect(fullscreen, activity, view) {
+        if (fullscreen && activity != null) {
+            val controller = WindowCompat.getInsetsController(activity.window, view)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (fullscreen && activity != null) {
+                val controller = WindowCompat.getInsetsController(activity.window, view)
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    var tfv by remember { mutableStateOf(TextFieldValue(text, selection = TextRange(text.length))) }
+    LaunchedEffect(text) {
+        if (text != tfv.text) {
+            val sel = tfv.selection
+            val s = sel.start.coerceIn(0, text.length)
+            val e = sel.end.coerceIn(0, text.length)
+            tfv = TextFieldValue(text = text, selection = TextRange(s, e))
+        }
+    }
+
+    fun setAndPropagate(v: TextFieldValue) {
+        tfv = v
+        onTextChange(v.text)
+    }
+
+    fun insertAtCursor(snippet: String) {
+        val t = tfv.text
+        val s = tfv.selection.min.coerceIn(0, t.length)
+        val e = tfv.selection.max.coerceIn(0, t.length)
+        val newText = t.replaceRange(s, e, snippet)
+        val newCursor = (s + snippet.length).coerceIn(0, newText.length)
+        setAndPropagate(TextFieldValue(newText, selection = TextRange(newCursor)))
+    }
+
+    fun moveCursor(delta: Int) {
+        val pos = (tfv.selection.end + delta).coerceIn(0, tfv.text.length)
+        setAndPropagate(tfv.copy(selection = TextRange(pos)))
+    }
+
+    var showFind by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var replaceText by remember { mutableStateOf("") }
+    var findStatus by remember { mutableStateOf<String?>(null) }
+
+    fun findNext(forward: Boolean) {
+        val q = findQuery
+        if (q.isBlank()) {
+            findStatus = "请输入查找内容"
+            return
+        }
+        val hay = tfv.text
+        val start = if (forward) tfv.selection.max else tfv.selection.min
+        val idx = if (forward) {
+            hay.indexOf(q, startIndex = start).takeIf { it >= 0 } ?: hay.indexOf(q, startIndex = 0)
+        } else {
+            hay.lastIndexOf(q, startIndex = (start - 1).coerceAtLeast(0)).takeIf { it >= 0 } ?: hay.lastIndexOf(q)
+        }
+        if (idx < 0) {
+            findStatus = "未找到：$q"
+            return
+        }
+        val range = TextRange(idx, idx + q.length)
+        setAndPropagate(tfv.copy(selection = range))
+        findStatus = null
+    }
+
+    fun replaceOne() {
+        val q = findQuery
+        if (q.isBlank()) return
+        val sel = tfv.selection
+        val selected = tfv.text.substring(sel.min.coerceIn(0, tfv.text.length), sel.max.coerceIn(0, tfv.text.length))
+        if (selected == q) {
+            insertAtCursor(replaceText)
+        } else {
+            findNext(true)
+        }
+    }
+
+    fun replaceAll() {
+        val q = findQuery
+        if (q.isBlank()) return
+        val src = tfv.text
+        val count = src.windowed(q.length, 1).count { it == q }
+        if (count <= 0) {
+            findStatus = "未找到：$q"
+            return
+        }
+        val newText = src.replace(q, replaceText)
+        setAndPropagate(TextFieldValue(newText, selection = TextRange(0)))
+        findStatus = "已替换 $count 处"
+    }
+
+    val containerModifier =
+        if (fullscreen) {
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+        } else {
+            Modifier.fillMaxWidth()
+        }
+
+    // 关键：某些设备/ROM 下 DialogProperties 的宽度在运行期切换不会生效，
+    // 用 key(fullscreen) 强制重建 Dialog 窗口，避免全屏时内容偏移导致右上角按钮被裁掉。
+    key(fullscreen) {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = !fullscreen,
+                usePlatformDefaultWidth = !fullscreen,
+                decorFitsSystemWindows = !fullscreen,
+            ),
+        ) {
+            Surface(
+                shape = if (fullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(16.dp),
+                tonalElevation = if (fullscreen) 0.dp else 2.dp,
+                shadowElevation = if (fullscreen) 0.dp else 1.dp,
+                modifier = containerModifier,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Scaffold(
+                    contentWindowInsets = if (fullscreen) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            navigationIcon = {
+                                IconButton(onClick = onDismiss) {
+                                    Icon(imageVector = Icons.Outlined.Close, contentDescription = "关闭")
+                                }
+                            },
+                            actions = {
+                                IconButton(onClick = { showFind = !showFind }) {
+                                    Icon(imageVector = Icons.Outlined.Search, contentDescription = "查找/替换")
+                                }
+                                IconButton(onClick = onToggleFullscreen) {
+                                    Icon(
+                                        imageVector = if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                                        contentDescription = if (fullscreen) "退出全屏" else "全屏",
+                                    )
+                                }
+                                IconButton(onClick = onSave, enabled = saveEnabled) {
+                                    Icon(imageVector = Icons.Outlined.Save, contentDescription = "保存")
+                                }
+                            },
+                        )
+                    },
+                ) { inner ->
+                    Column(
+                        modifier = Modifier
+                            .padding(inner)
+                            .padding(
+                                horizontal = if (fullscreen) 0.dp else Dimens.ScreenPaddingH,
+                                vertical = Dimens.SpacingSm,
+                            )
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(Dimens.SpacingSm),
+                    ) {
+                    if (loading) {
+                        Text("加载中…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (showFind) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = findQuery,
+                                    onValueChange = { findQuery = it; findStatus = null },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    label = { Text("查找") },
+                                )
+                                IconButton(onClick = { findNext(false) }) {
+                                    Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "上一个")
+                                }
+                                IconButton(onClick = { findNext(true) }) {
+                                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "下一个")
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = replaceText,
+                                    onValueChange = { replaceText = it; findStatus = null },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    label = { Text("替换为") },
+                                )
+                                TextButton(onClick = { replaceOne() }, enabled = findQuery.isNotBlank()) { Text("替换") }
+                                TextButton(onClick = { replaceAll() }, enabled = findQuery.isNotBlank()) { Text("全部") }
+                            }
+                            if (findStatus != null) {
+                                Text(findStatus ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = tfv,
+                        onValueChange = { setAndPropagate(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = fullscreen),
+                        minLines = if (fullscreen) 18 else 10,
+                        label = { Text("内容") },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        colors = OutlinedTextFieldDefaults.colors(),
+                    )
+
+                    if (fullscreen) {
+                        HavenLikeEditorQuickBar(
+                            onInsert = { insertAtCursor(it) },
+                            onLeft = { moveCursor(-1) },
+                            onRight = { moveCursor(+1) },
+                            onFind = { showFind = true },
+                            onReplace = { showFind = true },
+                            onSave = onSave,
+                            saveEnabled = saveEnabled,
+                        )
+                    }
+                    if (!fullscreen) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Dimens.SpacingSm, Alignment.End),
+                        ) {
+                            TextButton(onClick = onDismiss) { Text("取消") }
+                            TextButton(onClick = onSave, enabled = saveEnabled) { Text("保存") }
+                        }
+                    }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HavenLikeEditorQuickBar(
+    onInsert: (String) -> Unit,
+    onLeft: () -> Unit,
+    onRight: () -> Unit,
+    onFind: () -> Unit,
+    onReplace: () -> Unit,
+    onSave: () -> Unit,
+    saveEnabled: Boolean,
+) {
+    // Haven 风格：IME 出现时更“贴手”，这里全屏固定显示（你也可以改成只在 imeVisible 时显示）
+    Surface(
+        tonalElevation = 2.dp,
+        shadowElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            EditorQuickKey(label = "Tab", send = "\t", onInsert = onInsert)
+            EditorQuickKey(label = "{", onInsert = onInsert)
+            EditorQuickKey(label = "}", onInsert = onInsert)
+            EditorQuickKey(label = "(", onInsert = onInsert)
+            EditorQuickKey(label = ")", onInsert = onInsert)
+            EditorQuickKey(label = "[", onInsert = onInsert)
+            EditorQuickKey(label = "]", onInsert = onInsert)
+            EditorQuickKey(label = "\"", onInsert = onInsert)
+            EditorQuickKey(label = "'", onInsert = onInsert)
+            EditorQuickKey(label = "/", onInsert = onInsert)
+            EditorQuickActionText(label = "查找", onClick = onFind)
+            EditorQuickActionText(label = "替换", onClick = onReplace)
+            EditorQuickIcon(
+                icon = Icons.Outlined.Save,
+                contentDescription = "保存",
+                enabled = saveEnabled,
+                onClick = onSave,
+            )
+            EditorQuickIcon(icon = Icons.Outlined.KeyboardArrowLeft, contentDescription = "左", onClick = onLeft)
+            EditorQuickIcon(icon = Icons.Outlined.KeyboardArrowRight, contentDescription = "右", onClick = onRight)
+        }
+    }
+}
+
+@Composable
+private fun EditorQuickIcon(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .height(30.dp)
+            .defaultMinSize(minWidth = 30.dp, minHeight = 30.dp),
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun EditorQuickKey(
+    label: String,
+    send: String = label,
+    onInsert: (String) -> Unit,
+) {
+    FilledTonalButton(
+        onClick = { onInsert(send) },
+        modifier = Modifier
+            .height(30.dp)
+            // Material 默认 minWidth=58.dp，会导致键帽很宽；这里显式取消。
+            .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, lineHeight = 11.sp))
+    }
+}
+
+@Composable
+private fun EditorQuickActionText(
+    label: String,
+    onClick: () -> Unit,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = Modifier
+            .height(30.dp)
+            .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, lineHeight = 11.sp))
     }
 }
 

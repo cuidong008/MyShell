@@ -33,7 +33,7 @@ class MyShellApp : Application() {
                 nm.createNotificationChannel(
                     NotificationChannel(
                         PortForwardHoldService.CHANNEL_ID,
-                        "端口转发保活",
+                        "后台保持连接",
                         NotificationManager.IMPORTANCE_LOW,
                     ),
                 )

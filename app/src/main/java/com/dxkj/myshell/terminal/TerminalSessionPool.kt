@@ -97,8 +97,9 @@ object TerminalSessionPool {
     private fun syncPortForwardHoldService() {
         if (!::app.isInitialized) return
         scope.launch {
-            val n = _sessions.value.sumOf { it.ssh.activeLocalPortForwardCount() }
-            PortForwardHoldService.update(app, n)
+            val forwardCount = _sessions.value.sumOf { it.ssh.activeLocalPortForwardCount() }
+            val connectedSsh = _sessions.value.count { it.connected }
+            PortForwardHoldService.update(app, forwardCount, connectedSsh)
         }
     }
 
@@ -330,6 +331,7 @@ object TerminalSessionPool {
         }
         persistOpenHosts()
         rebuildHostPortForwardUi(hid)
+        syncPortForwardHoldService()
     }
 
     fun closeAll() {
@@ -357,6 +359,7 @@ object TerminalSessionPool {
                 }
             }
             rebuildHostPortForwardUi(hid)
+            syncPortForwardHoldService()
         }
     }
 
@@ -454,6 +457,7 @@ object TerminalSessionPool {
                 }
             }
             rebuildHostPortForwardUi(s0.hostId)
+            syncPortForwardHoldService()
             return
         }
 
@@ -488,6 +492,7 @@ object TerminalSessionPool {
                 }
             }
             rebuildHostPortForwardUi(host.id)
+            syncPortForwardHoldService()
             return
         }
 
@@ -559,6 +564,7 @@ object TerminalSessionPool {
                 runtimes.remove(sessionId)
                 try { shell.close() } catch (_: Throwable) {}
                 if (hidFinish != null) rebuildHostPortForwardUi(hidFinish)
+                syncPortForwardHoldService()
                 val cur = _sessions.value.firstOrNull { it.sessionId == sessionId } ?: return@launch
                 if (cur.autoReconnect) scheduleReconnect(sessionId)
             }
@@ -583,6 +589,7 @@ object TerminalSessionPool {
             }
         }
         rebuildHostPortForwardUi(host.id)
+        syncPortForwardHoldService()
     }
 
     private suspend fun scheduleReconnect(sessionId: Long) {

@@ -17,12 +17,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -77,7 +74,6 @@ import com.dxkj.myshell.R
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.prefs.AppPreferences
 import com.dxkj.myshell.data.repo.HostRepository
-import com.dxkj.myshell.input.rememberHardwareInputState
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.ui.terminal.HavenKeyboardToolbar
 import com.dxkj.myshell.ui.terminal.SimpleModifierManager
@@ -113,7 +109,6 @@ private fun getLineHeightPxNoThrow(view: View): Int {
     return (h ?: 0).coerceAtLeast(0)
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TerminalHubScreen(
     initialHostId: Long?,
@@ -149,10 +144,6 @@ fun TerminalHubScreen(
     val active = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
 
-    val hwInput = rememberHardwareInputState()
-    val forceShowKeybar by AppPreferences.terminalForceShowKeybar.collectAsState()
-    val forceShowIme by AppPreferences.terminalForceShowIme.collectAsState()
-    val pointerMode by AppPreferences.terminalPointerMode.collectAsState()
     val copyOnSelect by AppPreferences.terminalCopyOnSelect.collectAsState()
 
     var keyBarVisibleStandalone by remember { mutableStateOf(true) }
@@ -165,23 +156,15 @@ fun TerminalHubScreen(
         showCopyHint = true
     }
 
-    val hideKeyUiByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowKeybar
-    val hideImeByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowIme
-    val keyBarVisibleBase =
-        if (embeddedInSessionsPane) embeddedBottomToolbarExpanded else keyBarVisibleStandalone
-    // 设置里「强制显示」：覆盖实体键盘隐藏、会话页默认收起、以及每主机里关掉过的偏好
-    val keyBarVisible = keyBarVisibleBase || forceShowKeybar
-    val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
-    val imeVisible = WindowInsets.isImeVisible
-    // 软键盘/输入法插图出现时始终收起应用工具条：下方灰色条多为系统 IME（候选栏等），应用无法去掉；
-    // 若再叠一层 Esc 工具条只会更挤。「强制显示工具条」仍作用于实体键盘隐藏、会话页收起等场景。
-    val effectiveToolbarVisible = toolbarVisible && !imeVisible
-    val bottomBarHeight: Dp = if (effectiveToolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
-    val desktopPointerMode = when (pointerMode) {
-        AppPreferences.TerminalPointerMode.ON -> true
-        AppPreferences.TerminalPointerMode.OFF -> false
-        AppPreferences.TerminalPointerMode.AUTO -> hwInput.mouseLikeConnected
+    val keyBarVisible = if (embeddedInSessionsPane) {
+        embeddedBottomToolbarExpanded
+    } else {
+        keyBarVisibleStandalone
     }
+    val toolbarVisible = keyBarVisible
+    // 不因 IME 可见而收起底部工具条：输入法多占纵向空间时由窗口 resize，工具条与终端输入区错开
+    val effectiveToolbarVisible = toolbarVisible
+    val bottomBarHeight: Dp = if (effectiveToolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
 
     // 初始 hostId：自动开会话
     LaunchedEffect(initialHostId) {
@@ -269,8 +252,8 @@ fun TerminalHubScreen(
                         backgroundColor = termBg,
                         foregroundColor = termFg,
                         keyboardEnabled = true,
-                        showSoftKeyboard = showIme && !hideImeByKeyboard,
-                        desktopPointerMode = desktopPointerMode,
+                        showSoftKeyboard = showIme,
+                        desktopPointerMode = true,
                         copyOnSelect = copyOnSelect,
                         focusRequester = focusRequester,
                         modifierManager = modifierManager,

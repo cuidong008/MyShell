@@ -25,9 +25,6 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Mouse
-import androidx.compose.material.icons.automirrored.outlined.ViewSidebar
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -72,15 +69,11 @@ fun SettingsScreen(contentPadding: PaddingValues) {
     val themeMode by AppPreferences.themeMode.collectAsState()
     val colorScheme by AppPreferences.terminalColorScheme.collectAsState()
     val fontSize by AppPreferences.terminalFontSize.collectAsState()
-    val forceShowKeybar by AppPreferences.terminalForceShowKeybar.collectAsState()
-    val forceShowIme by AppPreferences.terminalForceShowIme.collectAsState()
-    val pointerMode by AppPreferences.terminalPointerMode.collectAsState()
     val copyOnSelect by AppPreferences.terminalCopyOnSelect.collectAsState()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showColorDialog by remember { mutableStateOf(false) }
     var showFontSizeDialog by remember { mutableStateOf(false) }
-    var showPointerModeDialog by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
@@ -165,32 +158,9 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                 ) {
                     Column(modifier = Modifier.padding(vertical = 6.dp)) {
                         SettingsSwitchRow(
-                            icon = Icons.AutoMirrored.Outlined.ViewSidebar,
-                            title = "强制显示底部工具条",
-                            subtitle = "实体键盘接入时仍显示；会话页默认收起或关掉过工具条时也会显示。软键盘弹出时会收起应用工具条；底部候选栏等为系统输入法区域，应用无法消除",
-                            checked = forceShowKeybar,
-                            onCheckedChange = { AppPreferences.setTerminalForceShowKeybar(it) },
-                            showDividerBelow = true,
-                        )
-                        SettingsSwitchRow(
-                            icon = Icons.Outlined.Keyboard,
-                            title = "强制显示终端软键盘",
-                            subtitle = "接上实体键盘后仍允许弹出系统输入法",
-                            checked = forceShowIme,
-                            onCheckedChange = { AppPreferences.setTerminalForceShowIme(it) },
-                            showDividerBelow = true,
-                        )
-                        SettingsScreenRow(
-                            icon = Icons.Outlined.Mouse,
-                            title = "桌面指针模式",
-                            subtitle = pointerMode.label + " · " + pointerMode.subtitle,
-                            onClick = { showPointerModeDialog = true },
-                            showDividerBelow = true,
-                        )
-                        SettingsSwitchRow(
                             icon = Icons.Outlined.ContentCopy,
                             title = "选中后自动复制",
-                            subtitle = "松开完成选择时复制到剪贴板（类似 MobaXterm）；右键粘贴需在「桌面指针模式」下使用鼠标",
+                            subtitle = "松开完成选择时复制到剪贴板。接鼠标时：左键拖选、滚轮/中键滚动；右键粘贴",
                             checked = copyOnSelect,
                             onCheckedChange = { AppPreferences.setTerminalCopyOnSelect(it) },
                             showDividerBelow = false,
@@ -228,16 +198,6 @@ fun SettingsScreen(contentPadding: PaddingValues) {
             onConfirm = { newSize ->
                 AppPreferences.setTerminalFontSize(newSize)
                 showFontSizeDialog = false
-            },
-        )
-    }
-    if (showPointerModeDialog) {
-        TerminalPointerModeDialog(
-            current = pointerMode,
-            onDismiss = { showPointerModeDialog = false },
-            onSelect = {
-                AppPreferences.setTerminalPointerMode(it)
-                showPointerModeDialog = false
             },
         )
     }
@@ -299,81 +259,6 @@ private fun SettingsSwitchRow(
             )
         }
     }
-}
-
-@Composable
-private fun TerminalPointerModeDialog(
-    current: AppPreferences.TerminalPointerMode,
-    onDismiss: () -> Unit,
-    onSelect: (AppPreferences.TerminalPointerMode) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        title = {
-            Text(
-                "桌面指针模式",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppPreferences.TerminalPointerMode.entries.forEach { mode ->
-                    val selected = mode == current
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .clickable(role = Role.RadioButton) { onSelect(mode) },
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f)
-                        },
-                        border = if (selected) {
-                            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                        } else {
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            RadioButton(
-                                selected = selected,
-                                onClick = null,
-                                colors = RadioButtonDefaults.colors(
-                                    selectedColor = MaterialTheme.colorScheme.primary,
-                                ),
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    mode.label,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                Text(
-                                    mode.subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        },
-    )
 }
 
 @Composable

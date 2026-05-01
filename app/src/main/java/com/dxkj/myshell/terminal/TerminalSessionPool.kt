@@ -14,6 +14,8 @@ import com.dxkj.myshell.ssh.DiscoveredListen
 import com.dxkj.myshell.ssh.PortForwardItem
 import com.dxkj.myshell.ssh.SshSessionManager
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.dxkj.myshell.data.prefs.AppPreferences
 import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
 import kotlinx.coroutines.CoroutineScope
@@ -523,11 +525,12 @@ object TerminalSessionPool {
         }
 
         // Create Haven termlib emulator (same rendering/input stack as Haven)
+        val (defaultFg, defaultBg) = AppPreferences.defaultTerminalColors()
         val emulator = TerminalEmulatorFactory.create(
             initialRows = 24,
             initialCols = 80,
-            defaultForeground = Color.White,
-            defaultBackground = Color.Black,
+            defaultForeground = defaultFg,
+            defaultBackground = defaultBg,
             enableAltScreen = true,
             onKeyboardInput = { data ->
                 // 对齐 Haven：所有输入（软键盘/硬件键盘/工具条）走同一个 sendToSsh，
@@ -546,6 +549,9 @@ object TerminalSessionPool {
                 }
             },
         )
+        // 工厂虽然传入 defaultForeground/Background，但 libvterm 原生实例不会在 lazy init 时自动同步；
+        // 若不调用 setDefaultColors，快照里单元格背景仍是黑色，Compose 侧 drawLine 会为每个格子画黑底，只剩外层空隙能看到配色。
+        emulator.setDefaultColors(defaultFg.toArgb(), defaultBg.toArgb())
         Log.d(TAG, "created emulator=${System.identityHashCode(emulator)} for sessionId=$sessionId")
 
         // Start reader: SSH -> emulator.writeInput (must run on main thread)

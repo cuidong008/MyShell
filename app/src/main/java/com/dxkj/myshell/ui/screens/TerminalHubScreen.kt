@@ -53,7 +53,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,23 +60,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.sp
+import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.content.res.ResourcesCompat
+import com.dxkj.myshell.R
 import com.dxkj.myshell.data.db.DbProvider
+import com.dxkj.myshell.data.prefs.AppPreferences
 import com.dxkj.myshell.data.repo.HostRepository
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.ui.terminal.HavenKeyboardToolbar
 import com.dxkj.myshell.ui.terminal.SimpleModifierManager
 import com.dxkj.myshell.ui.theme.Dimens
-import com.dxkj.myshell.R
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.SelectionController
 import kotlinx.coroutines.flow.map
@@ -123,6 +124,12 @@ fun TerminalHubScreen(
     val activity = context as? Activity
     val clipboard = LocalClipboardManager.current
     val imm = remember(context) { context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager }
+    TerminalSessionPool.init(context.applicationContext as Application)
+
+    val termScheme by AppPreferences.terminalColorScheme.collectAsState()
+    val terminalFontSp by AppPreferences.terminalFontSize.collectAsState()
+    val termBg = AppPreferences.argbLongToColor(termScheme.background)
+    val termFg = AppPreferences.argbLongToColor(termScheme.foreground)
     val hackTypeface = remember(context) {
         try {
             ResourcesCompat.getFont(context, R.font.hack_regular) ?: Typeface.MONOSPACE
@@ -131,15 +138,11 @@ fun TerminalHubScreen(
         }
     }
 
-    TerminalSessionPool.init(context.applicationContext as Application)
-
     val sessions by TerminalSessionPool.sessions.collectAsState()
     val activeId by TerminalSessionPool.activeSessionId.collectAsState()
     val active = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
 
-    var fontSize by remember { mutableIntStateOf(16) }
-    // termlib 的配色在创建 emulator 时确定；这里先固定黑底白字，后续按 Haven 的 setDefaultColors 再做可配置化。
     var keyBarVisible by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -162,21 +165,21 @@ fun TerminalHubScreen(
         }
     }
 
-    // 切换会话时加载对应 host 的偏好
+    // 切换会话时加载对应 host 的偏好（字号使用设置里的全局值，与 Haven 一致）
     LaunchedEffect(active?.hostId) {
         val hid = active?.hostId ?: return@LaunchedEffect
-        fontSize = prefs.getInt("fontSize_$hid", 16)
         keyBarVisible = prefs.getBoolean("keyBar_$hid", true)
     }
 
-    LaunchedEffect(fontSize, active?.hostId) {
-        val hid = active?.hostId ?: return@LaunchedEffect
-        prefs.edit().putInt("fontSize_$hid", fontSize).apply()
-    }
-    // 配色偏好暂不处理（见上方注释）
     LaunchedEffect(keyBarVisible, active?.hostId) {
         val hid = active?.hostId ?: return@LaunchedEffect
         prefs.edit().putBoolean("keyBar_$hid", keyBarVisible).apply()
+    }
+
+    // 与 TerminalSessionPool 创建时一致：把配色同步到 libvterm，使单元格默认背景与 Compose 传入的 backgroundColor 一致（否则格子仍是黑底）。
+    LaunchedEffect(active?.sessionId, termScheme.name, termFg, termBg) {
+        val emu = active?.emulator ?: return@LaunchedEffect
+        emu.setDefaultColors(termFg.toArgb(), termBg.toArgb())
     }
 
     if (showBack) {
@@ -204,7 +207,7 @@ fun TerminalHubScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Column(modifier = Modifier.fillMaxSize().background(termBg)) {
         // 上半区：终端 + 浮层（放进 Box，继续用 align 避免 ColumnScope 限制）
         val emulator = active?.emulator
         val focusRequester = remember(active?.sessionId) { FocusRequester() }
@@ -212,7 +215,7 @@ fun TerminalHubScreen(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (emulator != null) {
                 // 参考 Haven：用 key(sessionId) 固定 Terminal 生命周期，避免状态更新导致频繁 dispose/recreate
-                key(active!!.sessionId) {
+                key(active!!.sessionId, termScheme.name, terminalFontSp) {
                     var selectionController by remember { mutableStateOf<SelectionController?>(null) }
                     // 延迟开启 IME，避免 termlib 在节点未完全挂载时触发 focus/IME 竞态
                     var showIme by remember(active!!.sessionId) { mutableStateOf(false) }
@@ -228,9 +231,9 @@ fun TerminalHubScreen(
                             .fillMaxSize()
                             .focusable(),
                         typeface = hackTypeface,
-                        initialFontSize = fontSize.sp,
-                        backgroundColor = Color.Black,
-                        foregroundColor = Color.White,
+                        initialFontSize = terminalFontSp.sp,
+                        backgroundColor = termBg,
+                        foregroundColor = termFg,
                         keyboardEnabled = true,
                         showSoftKeyboard = showIme,
                         focusRequester = focusRequester,

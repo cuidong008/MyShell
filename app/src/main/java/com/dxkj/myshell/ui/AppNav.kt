@@ -10,6 +10,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
@@ -81,8 +86,8 @@ import com.dxkj.myshell.terminal.SessionState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.dxkj.myshell.ui.theme.Dimens
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 fun AppNav() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -113,6 +118,8 @@ fun AppNav() {
     val allSessions by TerminalSessionPool.sessions.collectAsState()
 
     Scaffold(
+        // 不要把 IME 插图叠进 innerPadding：键盘收起后部分机型仍残留 bottom inset，会挤出一条浅色空白带
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
         topBar = {
             // 全局顶栏统一隐藏：避免真机/虚拟机在不同尺寸与方向下表现不一致，并把垂直空间留给内容。
         },

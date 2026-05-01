@@ -123,6 +123,9 @@ fun TerminalHubScreen(
     showTopOverlay: Boolean = true,
     compactTopOverlay: Boolean = false,
     onToggleTopOverlay: (() -> Unit)? = null,
+    /** 会话页内嵌终端：底部 Esc/方向键条默认应收起，避免占用一整条灰色区域挡画面 */
+    embeddedInSessionsPane: Boolean = false,
+    embeddedBottomToolbarExpanded: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -152,7 +155,7 @@ fun TerminalHubScreen(
     val pointerMode by AppPreferences.terminalPointerMode.collectAsState()
     val copyOnSelect by AppPreferences.terminalCopyOnSelect.collectAsState()
 
-    var keyBarVisible by remember { mutableStateOf(true) }
+    var keyBarVisibleStandalone by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showCopyHint by remember { mutableStateOf(false) }
@@ -164,6 +167,8 @@ fun TerminalHubScreen(
 
     val hideKeyUiByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowKeybar
     val hideImeByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowIme
+    val keyBarVisible =
+        if (embeddedInSessionsPane) embeddedBottomToolbarExpanded else keyBarVisibleStandalone
     val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
     // 软键盘弹出时不要再占一整条工具条高度，否则与 IME 叠在一起并挡住终端底部输入行
     val imeVisible = WindowInsets.isImeVisible
@@ -187,15 +192,19 @@ fun TerminalHubScreen(
         }
     }
 
-    // 切换会话时加载对应 host 的偏好（字号使用设置里的全局值，与 Haven 一致）
-    LaunchedEffect(active?.hostId) {
+    // 切换会话时加载对应 host 的偏好（全屏终端）；内嵌会话页的底部条由 SessionsScreen 状态 + keyBar_embedded_* 控制
+    LaunchedEffect(active?.hostId, embeddedInSessionsPane) {
         val hid = active?.hostId ?: return@LaunchedEffect
-        keyBarVisible = prefs.getBoolean("keyBar_$hid", true)
+        if (!embeddedInSessionsPane) {
+            keyBarVisibleStandalone = prefs.getBoolean("keyBar_$hid", true)
+        }
     }
 
-    LaunchedEffect(keyBarVisible, active?.hostId) {
+    LaunchedEffect(keyBarVisibleStandalone, active?.hostId, embeddedInSessionsPane) {
         val hid = active?.hostId ?: return@LaunchedEffect
-        prefs.edit().putBoolean("keyBar_$hid", keyBarVisible).apply()
+        if (!embeddedInSessionsPane) {
+            prefs.edit().putBoolean("keyBar_$hid", keyBarVisibleStandalone).apply()
+        }
     }
 
     // 与 TerminalSessionPool 创建时一致：把配色同步到 libvterm，使单元格默认背景与 Compose 传入的 backgroundColor 一致（否则格子仍是黑底）。
@@ -331,8 +340,6 @@ fun TerminalHubScreen(
                 },
                 modifier = Modifier
                         .fillMaxWidth(),
-                showVncIcon = true,
-                onVncTap = null,
                 modifierManager = modifierManager,
             )
         } else {

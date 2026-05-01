@@ -1,6 +1,7 @@
 package com.dxkj.myshell.ui.screens
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,6 +51,10 @@ fun SessionsScreen(
     val context = LocalContext.current
     var pane by remember { mutableStateOf(SessionPane.Terminal) }
     var terminalToolbarVisible by remember { mutableStateOf(true) }
+    val terminalPrefs = remember(context) {
+        context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE)
+    }
+    var embeddedBottomKeyBar by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         TerminalSessionPool.init(context.applicationContext as Application)
@@ -64,6 +70,18 @@ fun SessionsScreen(
         LaunchedEffect(initialSessionId) {
             TerminalSessionPool.setActive(initialSessionId)
         }
+    }
+
+    LaunchedEffect(activeSession?.hostId, pane) {
+        if (pane != SessionPane.Terminal) return@LaunchedEffect
+        val hid = activeSession?.hostId ?: return@LaunchedEffect
+        embeddedBottomKeyBar = terminalPrefs.getBoolean("keyBar_embedded_$hid", false)
+    }
+
+    LaunchedEffect(embeddedBottomKeyBar, activeSession?.hostId, pane) {
+        if (pane != SessionPane.Terminal) return@LaunchedEffect
+        val hid = activeSession?.hostId ?: return@LaunchedEffect
+        terminalPrefs.edit().putBoolean("keyBar_embedded_$hid", embeddedBottomKeyBar).apply()
     }
 
     Column(
@@ -84,6 +102,8 @@ fun SessionsScreen(
                         showTopOverlay = terminalToolbarVisible,
                         compactTopOverlay = true,
                         onToggleTopOverlay = { terminalToolbarVisible = !terminalToolbarVisible },
+                        embeddedInSessionsPane = true,
+                        embeddedBottomToolbarExpanded = embeddedBottomKeyBar,
                     )
 
                     SessionPane.Files -> FilesScreen(
@@ -113,6 +133,19 @@ fun SessionsScreen(
                 verticalArrangement = Arrangement.spacedBy(Dimens.Spacing1),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                if (pane == SessionPane.Terminal) {
+                    IconButton(
+                        onClick = { embeddedBottomKeyBar = !embeddedBottomKeyBar },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Keyboard,
+                            contentDescription = if (embeddedBottomKeyBar) "隐藏底部按键条" else "显示底部按键条",
+                            tint = if (embeddedBottomKeyBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { pane = SessionPane.Terminal },
                     modifier = Modifier.size(36.dp),

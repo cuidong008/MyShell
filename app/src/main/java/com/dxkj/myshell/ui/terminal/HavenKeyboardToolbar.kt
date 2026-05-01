@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -93,8 +92,6 @@ fun HavenKeyboardToolbar(
     onSendBytes: (ByteArray) -> Unit,
     onDispatchKey: (modifiers: Int, key: Int) -> Unit,
     modifier: Modifier = Modifier,
-    showVncIcon: Boolean = true,
-    onVncTap: (() -> Unit)? = null,
     modifierManager: SimpleModifierManager,
 ) {
     val context = LocalContext.current
@@ -238,15 +235,6 @@ fun HavenKeyboardToolbar(
                     SymbolKey("/") { sendChar('/') }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (showVncIcon) {
-                        ToolbarIconButton(
-                            icon = Icons.Filled.DesktopWindows,
-                            desc = "VNC Desktop",
-                            onClick = { onVncTap?.invoke() },
-                            onLongClick = { view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) },
-                            enabled = onVncTap != null,
-                        )
-                    }
                     ToggleKey("Shift", shiftActive) { modifierManager.toggleShift() }
                     ToggleKey("Ctrl", ctrlActive) { modifierManager.toggleCtrl() }
                     ToggleKey("Alt", altActive) { modifierManager.toggleAlt() }

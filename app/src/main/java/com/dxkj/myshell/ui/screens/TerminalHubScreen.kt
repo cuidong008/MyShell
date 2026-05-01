@@ -3,8 +3,6 @@ package com.dxkj.myshell.ui.screens
 import android.app.Activity
 import android.app.Application
 import android.content.Context
-import android.view.InputDevice
-import android.view.inputmethod.InputMethodManager
 import android.view.WindowManager
 import android.view.View
 import android.view.ViewConfiguration
@@ -64,6 +62,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.sp
@@ -75,6 +74,7 @@ import com.dxkj.myshell.R
 import com.dxkj.myshell.data.db.DbProvider
 import com.dxkj.myshell.data.prefs.AppPreferences
 import com.dxkj.myshell.data.repo.HostRepository
+import com.dxkj.myshell.input.rememberHardwareInputState
 import com.dxkj.myshell.terminal.TerminalSessionPool
 import com.dxkj.myshell.ui.terminal.HavenKeyboardToolbar
 import com.dxkj.myshell.ui.terminal.SimpleModifierManager
@@ -123,7 +123,6 @@ fun TerminalHubScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val clipboard = LocalClipboardManager.current
-    val imm = remember(context) { context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager }
     TerminalSessionPool.init(context.applicationContext as Application)
 
     val termScheme by AppPreferences.terminalColorScheme.collectAsState()
@@ -143,6 +142,12 @@ fun TerminalHubScreen(
     val active = sessions.firstOrNull { it.sessionId == activeId } ?: sessions.lastOrNull()
     val prefs = remember(context) { context.getSharedPreferences("terminal_prefs", Context.MODE_PRIVATE) }
 
+    val hwInput = rememberHardwareInputState()
+    val forceShowKeybar by AppPreferences.terminalForceShowKeybar.collectAsState()
+    val forceShowIme by AppPreferences.terminalForceShowIme.collectAsState()
+    val pointerMode by AppPreferences.terminalPointerMode.collectAsState()
+    val copyOnSelect by AppPreferences.terminalCopyOnSelect.collectAsState()
+
     var keyBarVisible by remember { mutableStateOf(true) }
     var showHostPicker by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -151,6 +156,16 @@ fun TerminalHubScreen(
     fun showHint(text: String) {
         copyHintText = text
         showCopyHint = true
+    }
+
+    val hideKeyUiByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowKeybar
+    val hideImeByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowIme
+    val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
+    val bottomBarHeight: Dp = if (toolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
+    val desktopPointerMode = when (pointerMode) {
+        AppPreferences.TerminalPointerMode.ON -> true
+        AppPreferences.TerminalPointerMode.OFF -> false
+        AppPreferences.TerminalPointerMode.AUTO -> hwInput.mouseLikeConnected
     }
 
     // 初始 hostId：自动开会话
@@ -235,7 +250,9 @@ fun TerminalHubScreen(
                         backgroundColor = termBg,
                         foregroundColor = termFg,
                         keyboardEnabled = true,
-                        showSoftKeyboard = showIme,
+                        showSoftKeyboard = showIme && !hideImeByKeyboard,
+                        desktopPointerMode = desktopPointerMode,
+                        copyOnSelect = copyOnSelect,
                         focusRequester = focusRequester,
                         modifierManager = modifierManager,
                         onSelectionControllerAvailable = { selectionController = it },
@@ -261,7 +278,7 @@ fun TerminalHubScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                        .padding(bottom = Dimens.TerminalKeyBarHeight + Dimens.OverlayPaddingH)
+                        .padding(bottom = bottomBarHeight + Dimens.OverlayPaddingH)
                         .background(
                             MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
                             RoundedCornerShape(Dimens.OverlayCornerSm),
@@ -278,7 +295,7 @@ fun TerminalHubScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .then(if (immersive) Modifier.systemBarsPadding() else Modifier)
-                        .padding(bottom = Dimens.TerminalKeyBarHeight + Dimens.OverlayPaddingH)
+                        .padding(bottom = bottomBarHeight + Dimens.OverlayPaddingH)
                         .background(
                             MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f),
                             RoundedCornerShape(Dimens.OverlayCornerSm),
@@ -293,7 +310,7 @@ fun TerminalHubScreen(
         }
 
         // 下半区：Haven 风格底部键盘工具条（不覆盖在终端上，避免触摸被吞）
-        if (emulator != null) {
+        if (emulator != null && toolbarVisible) {
             HavenKeyboardToolbar(
                 focusRequester = focusRequester,
                 onSendBytes = { bytes ->
@@ -312,7 +329,7 @@ fun TerminalHubScreen(
                 modifierManager = modifierManager,
             )
         } else {
-            Spacer(modifier = Modifier.height(Dimens.TerminalKeyBarHeight))
+            Spacer(modifier = Modifier.height(if (emulator != null) bottomBarHeight else Dimens.TerminalKeyBarHeight))
         }
 
         if (showHostPicker) {

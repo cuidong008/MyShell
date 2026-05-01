@@ -15,6 +15,10 @@ object AppPreferences {
     private const val KEY_THEME = "theme"
     private const val KEY_TERMINAL_COLOR_SCHEME = "terminal_color_scheme"
     private const val KEY_TERMINAL_FONT_SIZE = "terminal_font_size"
+    private const val KEY_TERMINAL_FORCE_SHOW_KEYBAR = "terminal_force_show_keybar"
+    private const val KEY_TERMINAL_FORCE_SHOW_IME = "terminal_force_show_ime"
+    private const val KEY_TERMINAL_POINTER_MODE = "terminal_pointer_mode"
+    private const val KEY_TERMINAL_COPY_ON_SELECT = "terminal_copy_on_select"
 
     const val DEFAULT_FONT_SIZE = 14
     const val MIN_FONT_SIZE = 8
@@ -31,6 +35,18 @@ object AppPreferences {
     private val _terminalFontSize = MutableStateFlow(DEFAULT_FONT_SIZE)
     val terminalFontSize: StateFlow<Int> = _terminalFontSize.asStateFlow()
 
+    private val _terminalForceShowKeybar = MutableStateFlow(false)
+    val terminalForceShowKeybar: StateFlow<Boolean> = _terminalForceShowKeybar.asStateFlow()
+
+    private val _terminalForceShowIme = MutableStateFlow(false)
+    val terminalForceShowIme: StateFlow<Boolean> = _terminalForceShowIme.asStateFlow()
+
+    private val _terminalPointerMode = MutableStateFlow(TerminalPointerMode.AUTO)
+    val terminalPointerMode: StateFlow<TerminalPointerMode> = _terminalPointerMode.asStateFlow()
+
+    private val _terminalCopyOnSelect = MutableStateFlow(true)
+    val terminalCopyOnSelect: StateFlow<Boolean> = _terminalCopyOnSelect.asStateFlow()
+
     fun init(application: Application) {
         if (::prefs.isInitialized) return
         prefs = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -38,6 +54,10 @@ object AppPreferences {
         _terminalColorScheme.value = TerminalColorScheme.fromString(prefs.getString(KEY_TERMINAL_COLOR_SCHEME, null))
         _terminalFontSize.value = prefs.getInt(KEY_TERMINAL_FONT_SIZE, DEFAULT_FONT_SIZE)
             .coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        _terminalForceShowKeybar.value = prefs.getBoolean(KEY_TERMINAL_FORCE_SHOW_KEYBAR, false)
+        _terminalForceShowIme.value = prefs.getBoolean(KEY_TERMINAL_FORCE_SHOW_IME, false)
+        _terminalPointerMode.value = TerminalPointerMode.fromString(prefs.getString(KEY_TERMINAL_POINTER_MODE, null))
+        _terminalCopyOnSelect.value = prefs.getBoolean(KEY_TERMINAL_COPY_ON_SELECT, true)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -59,6 +79,30 @@ object AppPreferences {
         _terminalFontSize.value = v
     }
 
+    fun setTerminalForceShowKeybar(show: Boolean) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putBoolean(KEY_TERMINAL_FORCE_SHOW_KEYBAR, show).apply()
+        _terminalForceShowKeybar.value = show
+    }
+
+    fun setTerminalForceShowIme(show: Boolean) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putBoolean(KEY_TERMINAL_FORCE_SHOW_IME, show).apply()
+        _terminalForceShowIme.value = show
+    }
+
+    fun setTerminalPointerMode(mode: TerminalPointerMode) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putString(KEY_TERMINAL_POINTER_MODE, mode.name).apply()
+        _terminalPointerMode.value = mode
+    }
+
+    fun setTerminalCopyOnSelect(enabled: Boolean) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putBoolean(KEY_TERMINAL_COPY_ON_SELECT, enabled).apply()
+        _terminalCopyOnSelect.value = enabled
+    }
+
     /**
      * 将枚举里存储的 ARGB（Kotlin 中 `0xFFxxxxxx` 整型字面量易受符号扩展影响）转为 Compose [Color]。
      */
@@ -78,6 +122,19 @@ object AppPreferences {
         companion object {
             fun fromString(value: String?): ThemeMode =
                 entries.find { it.name == value } ?: SYSTEM
+        }
+    }
+
+    /** 终端桌面式指针（鼠标）：自动检测或强制开/关。 */
+    enum class TerminalPointerMode(val label: String, val subtitle: String) {
+        AUTO("自动", "检测到鼠标类设备时使用桌面操作"),
+        ON("始终开启", "左键拖选、右键粘贴、滚轮与中键拖动滚动"),
+        OFF("关闭", "始终使用触控手势"),
+        ;
+
+        companion object {
+            fun fromString(value: String?): TerminalPointerMode =
+                entries.find { it.name == value } ?: AUTO
         }
     }
 

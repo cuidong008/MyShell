@@ -79,6 +79,7 @@ import com.dxkj.myshell.ui.screens.KeysScreen
 import com.dxkj.myshell.ui.screens.OverviewScreen
 import com.dxkj.myshell.ui.screens.SessionsScreen
 import com.dxkj.myshell.ui.screens.TerminalHubScreen
+import com.dxkj.myshell.ui.screens.HelpScreen
 import com.dxkj.myshell.ui.screens.SettingsScreen
 import com.dxkj.myshell.ui.screens.TerminalScreen
 import com.dxkj.myshell.terminal.TerminalSessionPool
@@ -105,9 +106,9 @@ fun AppNav() {
     val useSidebar = isLandscape && isExpanded
 
     // 底部导航：手机竖屏/小屏使用，保留“会话”入口
-    val items = listOf(BottomTab.Servers, BottomTab.Sessions, BottomTab.Overview, BottomTab.Keys, BottomTab.Settings)
+    val items = listOf(BottomTab.Servers, BottomTab.Sessions, BottomTab.Overview, BottomTab.Keys, BottomTab.Settings, BottomTab.Help)
     // 侧栏/左侧导航：这里“会话”用动态列表呈现，因此主功能只保留主 tab + 设置，避免重复出现两套“会话入口”
-    val sideTabs = listOf(BottomTab.Servers, BottomTab.Overview, BottomTab.Keys, BottomTab.Settings)
+    val sideTabs = listOf(BottomTab.Servers, BottomTab.Overview, BottomTab.Keys, BottomTab.Settings, BottomTab.Help)
 
     val isTerminalFull = currentRoute?.startsWith("terminal_full/") == true || currentRoute?.startsWith("terminal_hub") == true
     val showNav = !isTerminalFull
@@ -468,6 +469,7 @@ fun AppNav() {
                 composable(BottomTab.Overview.route) { OverviewScreen(contentPadding = contentPaddingForPane) }
                 composable(BottomTab.Keys.route) { KeysScreen(contentPadding = contentPaddingForPane) }
                 composable(BottomTab.Settings.route) { SettingsScreen(contentPadding = contentPaddingForPane) }
+                composable(BottomTab.Help.route) { HelpScreen(contentPadding = contentPaddingForPane) }
 
             composable(
                 route = "host_edit?hostId={hostId}",

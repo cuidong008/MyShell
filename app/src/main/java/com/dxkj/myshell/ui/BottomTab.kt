@@ -1,6 +1,7 @@
 package com.dxkj.myshell.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Settings
@@ -18,5 +19,6 @@ sealed class BottomTab(
     data object Overview : BottomTab("overview", "概览", Icons.Outlined.Dashboard)
     data object Keys : BottomTab("keys", "密钥", Icons.Outlined.Key)
     data object Settings : BottomTab("settings", "设置", Icons.Outlined.Settings)
+    data object Help : BottomTab("help", "帮助", Icons.AutoMirrored.Outlined.HelpOutline)
 }
 

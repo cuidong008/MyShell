@@ -29,8 +29,6 @@ import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,9 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
 import com.dxkj.myshell.data.prefs.AppPreferences
+import com.dxkj.myshell.ui.components.ScreenTitleRow
 import com.dxkj.myshell.ui.theme.Dimens
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(contentPadding: PaddingValues) {
     val themeMode by AppPreferences.themeMode.collectAsState()
@@ -82,16 +80,6 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         color = MaterialTheme.colorScheme.background,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        "设置",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-            )
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -99,12 +87,17 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                     .padding(horizontal = Dimens.ScreenPaddingH)
                     .padding(bottom = 24.dp),
             ) {
+                ScreenTitleRow(
+                    title = "设置",
+                    modifier = Modifier.padding(top = 4.dp, bottom = Dimens.SpacingMd),
+                )
+
                 Text(
                     text = "外观",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(bottom = 10.dp),
                 )
 
                 Card(

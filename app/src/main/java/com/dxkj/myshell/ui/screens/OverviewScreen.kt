@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dxkj.myshell.ssh.LinuxHostMetricsSnapshot
 import com.dxkj.myshell.ssh.RemoteLinuxMetrics
+import com.dxkj.myshell.ui.components.ScreenTitleRow
 import com.dxkj.myshell.ui.theme.Dimens
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,13 +55,10 @@ fun OverviewScreen(contentPadding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else Dimens.SpacingMd),
     ) {
         item {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            ScreenTitleRow(
+                title = "概览",
+                modifier = Modifier.padding(top = 4.dp),
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("概览", style = MaterialTheme.typography.titleLarge)
-                }
                 IconButton(onClick = { vm.refreshNow() }) {
                     Icon(Icons.Outlined.Refresh, contentDescription = "立即刷新")
                 }

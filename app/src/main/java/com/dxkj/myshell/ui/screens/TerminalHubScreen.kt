@@ -173,9 +173,9 @@ fun TerminalHubScreen(
     val keyBarVisible = keyBarVisibleBase || forceShowKeybar
     val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
     val imeVisible = WindowInsets.isImeVisible
-    // 默认在 IME 可见时收起工具条以免挡输入行；强制开启时仍显示（用户明确要求）
-    val effectiveToolbarVisible =
-        toolbarVisible && (!imeVisible || forceShowKeybar)
+    // 软键盘/输入法插图出现时始终收起应用工具条：下方灰色条多为系统 IME（候选栏等），应用无法去掉；
+    // 若再叠一层 Esc 工具条只会更挤。「强制显示工具条」仍作用于实体键盘隐藏、会话页收起等场景。
+    val effectiveToolbarVisible = toolbarVisible && !imeVisible
     val bottomBarHeight: Dp = if (effectiveToolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
     val desktopPointerMode = when (pointerMode) {
         AppPreferences.TerminalPointerMode.ON -> true

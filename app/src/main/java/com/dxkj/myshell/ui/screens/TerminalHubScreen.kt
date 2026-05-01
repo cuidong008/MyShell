@@ -17,9 +17,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -110,6 +113,7 @@ private fun getLineHeightPxNoThrow(view: View): Int {
     return (h ?: 0).coerceAtLeast(0)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TerminalHubScreen(
     initialHostId: Long?,
@@ -161,7 +165,10 @@ fun TerminalHubScreen(
     val hideKeyUiByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowKeybar
     val hideImeByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowIme
     val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
-    val bottomBarHeight: Dp = if (toolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
+    // 软键盘弹出时不要再占一整条工具条高度，否则与 IME 叠在一起并挡住终端底部输入行
+    val imeVisible = WindowInsets.isImeVisible
+    val effectiveToolbarVisible = toolbarVisible && !imeVisible
+    val bottomBarHeight: Dp = if (effectiveToolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
     val desktopPointerMode = when (pointerMode) {
         AppPreferences.TerminalPointerMode.ON -> true
         AppPreferences.TerminalPointerMode.OFF -> false
@@ -310,7 +317,7 @@ fun TerminalHubScreen(
         }
 
         // 下半区：Haven 风格底部键盘工具条（不覆盖在终端上，避免触摸被吞）
-        if (emulator != null && toolbarVisible) {
+        if (emulator != null && effectiveToolbarVisible) {
             HavenKeyboardToolbar(
                 focusRequester = focusRequester,
                 onSendBytes = { bytes ->

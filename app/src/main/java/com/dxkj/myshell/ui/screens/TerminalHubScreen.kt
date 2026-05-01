@@ -167,12 +167,15 @@ fun TerminalHubScreen(
 
     val hideKeyUiByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowKeybar
     val hideImeByKeyboard = hwInput.hardwareKeyboardConnected && !forceShowIme
-    val keyBarVisible =
+    val keyBarVisibleBase =
         if (embeddedInSessionsPane) embeddedBottomToolbarExpanded else keyBarVisibleStandalone
+    // 设置里「强制显示」：覆盖实体键盘隐藏、会话页默认收起、以及每主机里关掉过的偏好
+    val keyBarVisible = keyBarVisibleBase || forceShowKeybar
     val toolbarVisible = keyBarVisible && !hideKeyUiByKeyboard
-    // 软键盘弹出时不要再占一整条工具条高度，否则与 IME 叠在一起并挡住终端底部输入行
     val imeVisible = WindowInsets.isImeVisible
-    val effectiveToolbarVisible = toolbarVisible && !imeVisible
+    // 默认在 IME 可见时收起工具条以免挡输入行；强制开启时仍显示（用户明确要求）
+    val effectiveToolbarVisible =
+        toolbarVisible && (!imeVisible || forceShowKeybar)
     val bottomBarHeight: Dp = if (effectiveToolbarVisible) Dimens.TerminalKeyBarHeight else 0.dp
     val desktopPointerMode = when (pointerMode) {
         AppPreferences.TerminalPointerMode.ON -> true

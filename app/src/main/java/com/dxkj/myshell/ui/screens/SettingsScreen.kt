@@ -167,7 +167,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                         SettingsSwitchRow(
                             icon = Icons.AutoMirrored.Outlined.ViewSidebar,
                             title = "强制显示底部工具条",
-                            subtitle = "接上实体键盘后仍显示 Esc/方向键等工具条",
+                            subtitle = "实体键盘接入时仍显示；会话页默认收起时也会显示；可与软键盘同时显示",
                             checked = forceShowKeybar,
                             onCheckedChange = { AppPreferences.setTerminalForceShowKeybar(it) },
                             showDividerBelow = true,
